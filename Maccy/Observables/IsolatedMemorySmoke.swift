@@ -432,6 +432,7 @@ enum IsolatedMemoryLifecycle {
             for _ in 0..<100 where item.thumbnailImage == nil || item.previewImage == nil {
               try await Task.sleep(nanoseconds: 10_000_000)
             }
+            try await Task.sleep(nanoseconds: 300_000_000)
             guard item.isSelected, item.showPreview, item.thumbnailImage != nil, item.previewImage != nil else {
               NSLog("[MaccyLifecycle] STAGE_FAIL image_ready cycle=%d thumbnail=%d preview=%d selected=%d show=%d thumbnail_task=%d preview_task=%d deleted=%d", cycle,
                     item.thumbnailImage != nil ? 1 : 0, item.previewImage != nil ? 1 : 0,
