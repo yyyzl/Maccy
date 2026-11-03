@@ -283,7 +283,9 @@ enum IsolatedMemoryLifecycle {
           first.numberOfCopies = 4
           let firstDecorator = add(first)
           first.pin = "b"
-          let pinnedPosition = History.shared.all.firstIndex(where: { $0.id == firstDecorator.id })
+          guard let pinnedPosition = History.shared.all.firstIndex(where: { $0.id == firstDecorator.id }) else {
+            throw LifecycleError.invalidFixture
+          }
           let duplicate = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain)]))
           guard duplicate.item.pin == "b", duplicate.item.title == "Contract original title",
             duplicate.item.application == "synthetic.original", duplicate.item.numberOfCopies == 5,
@@ -392,6 +394,12 @@ enum IsolatedMemoryLifecycle {
               guard let stored = context.model(for: item.item.persistentModelID) as? HistoryItem else {
                 throw LifecycleError.originalMismatch
               }
+              let expectedTypes: Set<String> = item.isPinned ?
+                [NSPasteboard.PasteboardType.tiff.rawValue, NSPasteboard.PasteboardType.png.rawValue] :
+                [NSPasteboard.PasteboardType.tiff.rawValue]
+              guard Set(stored.contents.map(\.type)) == expectedTypes,
+                stored.contents.allSatisfy({ $0.value != nil })
+              else { throw LifecycleError.originalMismatch }
               for content in stored.contents {
                 guard board.data(forType: .init(content.type)) == content.value else {
                   throw LifecycleError.originalMismatch
