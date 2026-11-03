@@ -29,7 +29,8 @@ jobs:
         if: matrix.variant != 'candidate'
         run: |
           git restore --source=5b90af348c2ae06c74fd06ae70aff9e1ea8d0f24 -- \
-            Maccy/Observables/HistoryItemDecorator.swift Maccy/Observables/Popup.swift
+            Maccy/Observables/HistoryItemDecorator.swift Maccy/Observables/Popup.swift \
+            Maccy/Observables/HistoryImageLoader.swift Maccy/Observables/History.swift Maccy/Clipboard.swift
           if [ '${{ matrix.variant }}' = observer ]; then
             git restore --source=308e092 -- Maccy/Observables/HistoryItemDecorator.swift
           fi

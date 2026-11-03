@@ -78,6 +78,23 @@ class Clipboard {
     guard let item else { return }
 
     pasteboard.clearContents()
+    HistoryItemReader.read(item) { stored in
+      writeContents(stored, removeFormatting: removeFormatting)
+    }
+    pasteboard.setString("", forType: .fromMaccy)
+    pasteboard.setString(item.application ?? "", forType: .source)
+    sync()
+
+    Task {
+      if notifyOnCopy {
+        Notifier.notify(body: item.title, sound: .knock)
+      }
+      checkForChangesInPasteboard()
+    }
+  }
+
+  @MainActor
+  private func writeContents(_ item: HistoryItem, removeFormatting: Bool) {
     var contents = item.contents
 
     if removeFormatting {
@@ -101,16 +118,6 @@ class Clipboard {
     }
     pasteboard.writeObjects(fileURLItems)
 
-    pasteboard.setString("", forType: .fromMaccy)
-    pasteboard.setString(item.application ?? "", forType: .source)
-    sync()
-
-    Task {
-      if notifyOnCopy {
-        Notifier.notify(body: item.title, sound: .knock)
-      }
-      checkForChangesInPasteboard()
-    }
   }
 
   // Based on https://github.com/Clipy/Clipy/blob/develop/Clipy/Sources/Services/PasteService.swift.

@@ -1,30 +1,46 @@
 import AppKit
 import SwiftData
 
-// Read image data in a short-lived context so list previews do not keep the
-// original data in the long-lived history context. Unsaved edits must use the
-// original context to avoid showing a stale image.
-enum HistoryImageLoader {
-  @MainActor
-  static func resizedImage(for item: HistoryItem, maxSize: NSSize) -> NSImage? {
-    func resize(_ source: HistoryItem) -> NSImage? {
-      source.image?.resized(to: maxSize)
-    }
-
+// Keep persisted payload reads out of the long-lived editing context. Pending
+// changes to this item must still be read from their original context.
+enum HistoryItemReader {
+  // Return values must not retain persisted models after this read context ends.
+  static func read<Result>(_ item: HistoryItem, _ body: (HistoryItem) -> Result) -> Result {
     guard let originalContext = item.modelContext,
-      !originalContext.hasChanges,
       !item.isDeleted,
       item.persistentModelID.storeIdentifier != nil
     else {
-      return resize(item)
+      return body(item)
+    }
+
+    if originalContext.hasChanges {
+      let pending = originalContext.insertedModelsArray + originalContext.changedModelsArray +
+        originalContext.deletedModelsArray
+      let identifier = item.persistentModelID
+      let hasPendingContent = pending.contains { model in
+        if model.persistentModelID == identifier { return true }
+        guard let content = model as? HistoryItemContent else { return false }
+        // A deleted child's inverse may already be cleared, so retain the safe fallback.
+        return content.isDeleted || content.item?.persistentModelID == identifier
+      }
+      if hasPendingContent { return body(item) }
     }
 
     return autoreleasepool {
       let readContext = ModelContext(originalContext.container)
       guard let stored = readContext.model(for: item.persistentModelID) as? HistoryItem else {
-        return resize(item)
+        return body(item)
       }
-      return resize(stored)
+      return body(stored)
+    }
+  }
+}
+
+enum HistoryImageLoader {
+  @MainActor
+  static func resizedImage(for item: HistoryItem, maxSize: NSSize) -> NSImage? {
+    HistoryItemReader.read(item) { source in
+      source.image?.resized(to: maxSize)
     }
   }
 }

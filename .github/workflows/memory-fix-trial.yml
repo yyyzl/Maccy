@@ -20,7 +20,7 @@ jobs:
             -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/Trial" \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
             PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryTrial \
-            MARKETING_VERSION=2.6.1 CURRENT_PROJECT_VERSION=61 \
+            MARKETING_VERSION=2.6.1 CURRENT_PROJECT_VERSION=62 \
             'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL' \
             'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' build
           app="$RUNNER_TEMP/Trial/Build/Products/Release/Maccy.app"
