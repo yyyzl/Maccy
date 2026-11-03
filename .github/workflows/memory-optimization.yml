@@ -1,0 +1,56 @@
+name: Verify Maccy memory optimization
+
+on:
+  push:
+    branches:
+      - 'memory-optimization/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and run isolated tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show macOS and Xcode versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
+      - name: Build experimental app without signing
+        run: |
+          xcodebuild \
+            -project Maccy.xcodeproj \
+            -scheme Maccy \
+            -configuration Debug \
+            -derivedDataPath "$RUNNER_TEMP/MaccyDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Run isolated regression tests
+        run: |
+          sh tests-cli/clipboard-metadata/run.sh
+          sh tests-cli/image-resize/run.sh
+          sh tests-cli/image-loader/run.sh
+          sh tests-cli/decorator/run.sh
+
+      - name: Package unsigned build for inspection
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/MaccyDerivedData/Build/Products/Debug/Maccy.app" \
+            "$RUNNER_TEMP/Maccy-unsigned-experimental.zip"
+
+      - name: Upload unsigned experimental artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Maccy-unsigned-experimental
+          path: ${{ runner.temp }}/Maccy-unsigned-experimental.zip
+          if-no-files-found: error
+          retention-days: 7

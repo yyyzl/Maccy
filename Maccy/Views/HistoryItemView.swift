@@ -21,6 +21,9 @@ struct HistoryItemView: View {
     .onAppear {
       item.ensureThumbnailImage()
     }
+    .onDisappear {
+      item.cleanupImages()
+    }
     .onTapGesture {
       appState.history.select(item)
     }

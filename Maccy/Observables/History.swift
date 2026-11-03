@@ -110,7 +110,14 @@ class History { // swiftlint:disable:this type_body_length
   func load() async throws {
     let descriptor = FetchDescriptor<HistoryItem>()
     let results = try Storage.shared.context.fetch(descriptor)
-    all = sorter.sort(results).map { HistoryItemDecorator($0) }
+    // A failed metadata lookup falls back to the original per-item behavior.
+    let clipboardHints = try? loadUniversalClipboardHints(
+      context: Storage.shared.context,
+      markerType: NSPasteboard.PasteboardType.universalClipboard.rawValue
+    )
+    all = sorter.sort(results).map { item in
+      HistoryItemDecorator(item, universalClipboardHint: clipboardHints?.hint(for: item.persistentModelID))
+    }
     items = all
 
     limitHistorySize(to: Defaults[.size])

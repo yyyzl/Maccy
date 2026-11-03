@@ -71,11 +71,11 @@ class HistoryItemDecorator: Identifiable, Hashable {
 
   private(set) var item: HistoryItem
 
-  init(_ item: HistoryItem, shortcuts: [KeyShortcut] = []) {
+  init(_ item: HistoryItem, shortcuts: [KeyShortcut] = [], universalClipboardHint: Bool? = nil) {
     self.item = item
     self.shortcuts = shortcuts
     self.title = item.title
-    self.applicationImage = ApplicationImageCache.shared.getImage(item: item)
+    self.applicationImage = ApplicationImageCache.shared.getImage(item: item, universalClipboardHint: universalClipboardHint)
 
     synchronizeItemPin()
     synchronizeItemTitle()
@@ -83,9 +83,6 @@ class HistoryItemDecorator: Identifiable, Hashable {
 
   @MainActor
   func ensureThumbnailImage() {
-    guard item.image != nil else {
-      return
-    }
     guard thumbnailImage == nil else {
       return
     }
@@ -93,15 +90,13 @@ class HistoryItemDecorator: Identifiable, Hashable {
       return
     }
     thumbnailImageGenerationTask = Task { [weak self] in
+      guard !Task.isCancelled else { return }
       self?.generateThumbnailImage()
     }
   }
 
   @MainActor
   func ensurePreviewImage() {
-    guard item.image != nil else {
-      return
-    }
     guard previewImage == nil else {
       return
     }
@@ -109,6 +104,7 @@ class HistoryItemDecorator: Identifiable, Hashable {
       return
     }
     previewImageGenerationTask = Task { [weak self] in
+      guard !Task.isCancelled else { return }
       self?.generatePreviewImage()
     }
   }
@@ -117,6 +113,8 @@ class HistoryItemDecorator: Identifiable, Hashable {
   func cleanupImages() {
     thumbnailImageGenerationTask?.cancel()
     previewImageGenerationTask?.cancel()
+    thumbnailImageGenerationTask = nil
+    previewImageGenerationTask = nil
     thumbnailImage?.recache()
     previewImage?.recache()
     thumbnailImage = nil
@@ -125,18 +123,12 @@ class HistoryItemDecorator: Identifiable, Hashable {
 
   @MainActor
   private func generateThumbnailImage() {
-    guard let image = item.image else {
-      return
-    }
-    thumbnailImage = image.resized(to: HistoryItemDecorator.thumbnailImageSize)
+    thumbnailImage = HistoryImageLoader.resizedImage(for: item, maxSize: HistoryItemDecorator.thumbnailImageSize)
   }
 
   @MainActor
   private func generatePreviewImage() {
-    guard let image = item.image else {
-      return
-    }
-    previewImage = image.resized(to: HistoryItemDecorator.previewImageSize)
+    previewImage = HistoryImageLoader.resizedImage(for: item, maxSize: HistoryItemDecorator.previewImageSize)
   }
 
   @MainActor
