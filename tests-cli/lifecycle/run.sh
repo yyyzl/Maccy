@@ -27,8 +27,8 @@ launch() {
 }
 wait_marker() {
   for ((attempt=0; attempt<240; attempt++)); do
-    if rg -q "\[MaccyLifecycle\] $2" "$1"; then return; fi
-    if rg -q '\[MaccyLifecycle\] FAIL' "$1" || ! kill -0 "$active_pid" 2>/dev/null; then
+    if grep -Eq "\[MaccyLifecycle\] $2" "$1"; then return; fi
+    if grep -Eq '\[MaccyLifecycle\] FAIL' "$1" || ! kill -0 "$active_pid" 2>/dev/null; then
       cat "$1"; return 1
     fi
     sleep 0.5

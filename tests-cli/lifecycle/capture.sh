@@ -19,7 +19,7 @@ result_dir=$(sed -n 's/^Results: //p' "$output/$label-console.log" | head -1)
 [[ "$result_dir" =~ ^/tmp/maccy-long-results\.[A-Za-z0-9]+$ ]]
 if [[ -f "$result_dir/footprint.csv" ]]; then cp "$result_dir/footprint.csv" "$output/$label.csv"; fi
 if [[ -f "$result_dir/long.log" ]]; then
-  rg '\[MaccyLifecycle\]' "$result_dir/long.log" > "$output/$label.log" || true
+  grep -E '\[MaccyLifecycle\]' "$result_dir/long.log" > "$output/$label.log" || true
 fi
 printf '%s\n' "${statuses[0]}" > "$output/$label-exit-code.txt"
 exit "${statuses[0]}"

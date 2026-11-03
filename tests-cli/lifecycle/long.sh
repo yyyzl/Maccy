@@ -24,7 +24,7 @@ printf 'Results: %s\n' "$results"
 active_pid=$!
 wait "$active_pid"
 active_pid=''
-rg -q '\[MaccyLifecycle\] SEED_OK' "$results/seed.log"
+grep -Eq '\[MaccyLifecycle\] SEED_OK' "$results/seed.log"
 printf 'variant,phase,elapsed_seconds,physical_footprint,peak_footprint\n' > "$results/footprint.csv"
 "$app/Contents/MacOS/Maccy" --isolated-lifecycle --scenario=long "--cycles=$cycles" "--store=$store" "${flags[@]}" > "$results/long.log" 2>&1 &
 active_pid=$!
@@ -33,9 +33,9 @@ sample() {
   metrics=$(footprint "$active_pid" | awk '/phys_footprint:/{physical=$2" "$3} /phys_footprint_peak:/{peak=$2" "$3} END{print physical","peak}')
   printf '%s,%s,%s,%s\n' "$label" "$1" "$(( $(date +%s) - started ))" "$metrics" | tee -a "$results/footprint.csv"
 }
-while ! rg -q '\[MaccyLifecycle\] READY scenario=long' "$results/long.log"; do
-  if rg -q '\[MaccyLifecycle\] FAIL' "$results/long.log" || ! kill -0 "$active_pid" 2>/dev/null; then
-    rg '\[MaccyLifecycle\]' "$results/long.log"; exit 1
+while ! grep -Eq '\[MaccyLifecycle\] READY scenario=long' "$results/long.log"; do
+  if grep -Eq '\[MaccyLifecycle\] FAIL' "$results/long.log" || ! kill -0 "$active_pid" 2>/dev/null; then
+    grep -E '\[MaccyLifecycle\]' "$results/long.log"; exit 1
   fi
   (( $(date +%s) - started < cycles * 20 + 600 )) || { echo 'FAIL long-run timeout'; exit 1; }
   sample mixed
