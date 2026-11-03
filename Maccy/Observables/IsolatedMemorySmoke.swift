@@ -1,6 +1,7 @@
 #if DEBUG || MEMORY_LIFECYCLE
 import AppKit
 import Foundation
+import Observation
 import SwiftData
 
 // This test only runs when explicitly requested in the isolated test bundle.
@@ -342,6 +343,7 @@ enum IsolatedMemoryLifecycle {
           // 仅远端一次性 CI 桌面显示合成窗口，本机始终保持隐藏。
           let visibleCIWindow = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
           NSLog("[MaccyLifecycle] INTERACTION_MODE visible_ci=%@", visibleCIWindow ? "YES" : "NO")
+          if scenario == "interaction" { traceSelection() }
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
           var imageIDs = Set(History.shared.all.filter({ $0.title.contains("image") }).map { $0.item.persistentModelID })
@@ -417,6 +419,9 @@ enum IsolatedMemoryLifecycle {
                     item.isSelected ? 1 : 0, item.showPreview ? 1 : 0,
                     item.thumbnailImageGenerationTask != nil ? 1 : 0,
                     item.previewImageGenerationTask != nil ? 1 : 0, item.item.isDeleted ? 1 : 0)
+              NSLog("[MaccyLifecycle] STAGE_DETAIL window_visible=%d window_key=%d global_selected=%d selection_matches=%d", panel.isVisible ? 1 : 0,
+                    panel.isKeyWindow ? 1 : 0, History.shared.selectedItem != nil ? 1 : 0,
+                    AppState.shared.selection == item.id ? 1 : 0)
               let readContext = ModelContext(Storage.shared.container)
               if let stored = readContext.model(for: item.item.persistentModelID) as? HistoryItem {
                 let formats = stored.contents.map { "\($0.type):\($0.value?.count ?? -1)" }.joined(separator: ",")
@@ -482,6 +487,17 @@ enum IsolatedMemoryLifecycle {
       } catch {
         NSLog("[MaccyLifecycle] FAIL %@", String(describing: error)); exit(2)
       }
+    }
+  }
+
+  @MainActor
+  private static func traceSelection() {
+    _ = withObservationTracking {
+      _ = AppState.shared.selection
+      _ = History.shared.selectedItem
+    } onChange: {
+      NSLog("[MaccyLifecycle] SELECTION_CHANGED stack=%@", Thread.callStackSymbols.joined(separator: " | "))
+      DispatchQueue.main.async { traceSelection() }
     }
   }
 

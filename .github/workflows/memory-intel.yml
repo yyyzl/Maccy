@@ -32,7 +32,7 @@ jobs:
           comparison_files=(Maccy/Observables/HistoryItemDecorator.swift Maccy/Observables/Popup.swift
             Maccy/Observables/HistoryImageLoader.swift Maccy/Observables/History.swift Maccy/Clipboard.swift
             Maccy/Views/HistoryItemView.swift Maccy/Extensions/NSImage+Resized.swift)
-          for variant in bulk candidate; do
+          for variant in candidate; do
             revision="$candidate_source"
             if [ "$variant" = baseline ]; then revision=5b90af348c2ae06c74fd06ae70aff9e1ea8d0f24; fi
             if [ "$variant" = bulk ]; then revision=8da61bd; fi
@@ -57,7 +57,7 @@ jobs:
       - name: Verify twelve UI cycles and original-format contracts
         run: |
           set -euo pipefail
-          for variant in bulk candidate; do
+          for variant in candidate; do
             for scenario in contracts interaction; do
             set +e
             bash tests-cli/lifecycle/run.sh "$RUNNER_TEMP/$variant/Maccy.app" "$variant" "$scenario" | tee "$RUNNER_TEMP/memory-results/$scenario-$variant-console.log"
@@ -70,9 +70,6 @@ jobs:
             grep -E '\[MaccyLifecycle\]' "$directory/$scenario.log" > "$RUNNER_TEMP/memory-results/$scenario-$variant.log"
             done
           done
-      - name: Measure the bulk-context version
-        continue-on-error: true
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/bulk/Maccy.app" bulk 60 "$RUNNER_TEMP/memory-results"
       - name: Measure the per-item-context candidate
         id: candidate
         run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" candidate 60 "$RUNNER_TEMP/memory-results"
