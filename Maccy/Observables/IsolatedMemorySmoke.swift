@@ -165,7 +165,7 @@ enum IsolatedMemoryLifecycle {
       UserDefaults.standard.bool(forKey: "ignoreEvents"),
       !UserDefaults.standard.bool(forKey: "clearOnQuit"),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "copy"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "copy"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -188,7 +188,7 @@ enum IsolatedMemoryLifecycle {
           for index in 0..<200 {
             try autoreleasepool {
               let context = ModelContext(Storage.shared.container)
-              let item = index % 5 == 4 ? text(index) : image(index)
+              let item = index % 10 == 0 ? image(index) : text(index)
               context.insert(item)
               try context.save()
             }
@@ -203,13 +203,18 @@ enum IsolatedMemoryLifecycle {
 
         switch scenario {
         case "text":
-          for index in 200..<220 { History.shared.add(text(index)) }
+          for index in 200..<220 {
+            Clipboard.shared.changeCount += 1
+            History.shared.add(text(index))
+          }
         case "image":
           for index in 200..<220 {
+            Clipboard.shared.changeCount += 1
             autoreleasepool { History.shared.add(image(index)) }
           }
         case "duplicate":
           for _ in 0..<20 {
+            Clipboard.shared.changeCount += 1
             let item = image(0)
             History.shared.add(item)
           }
@@ -222,6 +227,18 @@ enum IsolatedMemoryLifecycle {
               item.cleanupImages()
             }
           }
+        case "browse":
+          // Keep six rows mounted, as a list does while moving between previews.
+          // Closing the popup must release these caches without a row disappearing.
+          for item in History.shared.all.filter({ $0.title.contains("image") }).prefix(6) {
+            item.ensureThumbnailImage()
+            item.ensurePreviewImage()
+          }
+          try await Task.sleep(nanoseconds: 1_000_000_000)
+          AppState.shared.popup.close()
+          NSLog("[MaccyLifecycle] CLOSED previews=%d thumbnails=%d",
+                History.shared.all.filter({ $0.previewImage != nil }).count,
+                History.shared.all.filter({ $0.thumbnailImage != nil }).count)
         case "copy":
           let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
           defer { board.releaseGlobally() }
@@ -258,7 +275,7 @@ enum IsolatedMemoryLifecycle {
 
   private static func image(_ index: Int) -> HistoryItem {
     let bitmap = NSBitmapImageRep(
-      bitmapDataPlanes: nil, pixelsWide: 512, pixelsHigh: 512,
+      bitmapDataPlanes: nil, pixelsWide: 1600, pixelsHigh: 1280,
       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
     )!
