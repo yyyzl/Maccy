@@ -1,0 +1,95 @@
+name: Verify data lifetime and model contracts on Intel
+
+on:
+  push:
+    branches: ['memory-intel/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-intel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: macos-26-intel
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Record this auxiliary environment
+        run: |
+          test "$(uname -m)" = x86_64
+          mkdir -p "$RUNNER_TEMP/memory-results"
+          { sw_vers; uname -m; sysctl -n hw.memsize; git rev-parse HEAD; df -h "$RUNNER_TEMP"; } | tee "$RUNNER_TEMP/memory-results/host.txt"
+      - name: Build and sign the three controlled x86_64 Release variants
+        run: |
+          set -euo pipefail
+          candidate_source=$(git rev-parse HEAD)
+          comparison_files=(Maccy/Observables/HistoryItemDecorator.swift Maccy/Observables/Popup.swift
+            Maccy/Observables/HistoryImageLoader.swift Maccy/Observables/History.swift Maccy/Clipboard.swift
+            Maccy/Views/HistoryItemView.swift Maccy/Extensions/NSImage+Resized.swift)
+          for variant in baseline bulk candidate; do
+            revision="$candidate_source"
+            if [ "$variant" = baseline ]; then revision=5b90af348c2ae06c74fd06ae70aff9e1ea8d0f24; fi
+            if [ "$variant" = bulk ]; then revision=8da61bd; fi
+            git restore --source="$revision" -- "${comparison_files[@]}"
+            xcodebuild -project Maccy.xcodeproj -scheme Maccy -configuration Release \
+              -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/NativeBuild" \
+              -clonedSourcePackagesDirPath "$RUNNER_TEMP/NativePackages" \
+              ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+              PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryLifecycle \
+              'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL MEMORY_LIFECYCLE' \
+              'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' build
+            destination="$RUNNER_TEMP/$variant"
+            mkdir -p "$destination"
+            ditto "$RUNNER_TEMP/NativeBuild/Build/Products/Release/Maccy.app" "$destination/Maccy.app"
+            lipo "$destination/Maccy.app/Contents/MacOS/Maccy" -verify_arch x86_64
+            if otool -L "$destination/Maccy.app/Contents/MacOS/Maccy" | grep -Fq Sparkle.framework; then exit 1; fi
+            sed 's/$(PRODUCT_BUNDLE_IDENTIFIER)/org.yyyzl.MaccyMemoryLifecycle/g' Maccy/Maccy.entitlements > "$destination/entitlements.plist"
+            codesign --force --deep --sign - --pagesize 4096 --options runtime \
+              --entitlements "$destination/entitlements.plist" "$destination/Maccy.app"
+            codesign --verify --deep --strict "$destination/Maccy.app"
+          done
+      - name: Verify duplicate metadata and original-format contracts
+        run: |
+          set -euo pipefail
+          for variant in bulk candidate; do
+            set +e
+            bash tests-cli/lifecycle/run.sh "$RUNNER_TEMP/$variant/Maccy.app" "$variant" contracts | tee "$RUNNER_TEMP/memory-results/contracts-$variant-console.log"
+            set -e
+            directory=$(sed -n 's/^Results: //p' "$RUNNER_TEMP/memory-results/contracts-$variant-console.log" | head -1)
+            test -f "$directory/contracts.log"
+            rg 'CONTRACTS_OK' "$directory/contracts.log"
+            rg 'READY scenario=contracts' "$directory/contracts.log"
+            rg '\[MaccyLifecycle\]' "$directory/contracts.log" > "$RUNNER_TEMP/memory-results/contracts-$variant.log"
+          done
+      - name: Measure the original baseline
+        continue-on-error: true
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/baseline/Maccy.app" baseline 60 "$RUNNER_TEMP/memory-results"
+      - name: Measure the bulk-context version
+        continue-on-error: true
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/bulk/Maccy.app" bulk 60 "$RUNNER_TEMP/memory-results"
+      - name: Measure the per-item-context candidate
+        id: candidate
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" candidate 60 "$RUNNER_TEMP/memory-results"
+      - name: Preserve the auxiliary comparison, including failed budgets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auxiliary-intel-memory-comparison
+          path: ${{ runner.temp }}/memory-results/
+          retention-days: 7
+      - name: Check candidate endurance after it passes
+        if: steps.candidate.outcome == 'success'
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" endurance 240 "$RUNNER_TEMP/memory-results"
+      - name: Preserve the auxiliary endurance result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auxiliary-intel-memory-endurance
+          path: ${{ runner.temp }}/memory-results/
+          retention-days: 7
