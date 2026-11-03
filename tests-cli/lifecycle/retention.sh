@@ -60,16 +60,20 @@ sample idle-0
 sleep 60
 sample idle-60
 snapshot final
-heap -s --noContent '--addresses=CFData*[1M-]' "$active_pid" > "$output/data-addresses-metadata.txt" 2>&1 || true
-address=$(python3 - "$output/data-addresses-metadata.txt" <<'PY'
+heap -s --noContent --addresses=all "$active_pid" > "$results/all-addresses-metadata.txt"
+python3 - "$results/all-addresses-metadata.txt" "$output/data-addresses-metadata.txt" "$results/trace-addresses.txt" <<'PY'
 import pathlib, re, sys
-match = re.search(r'^\s*(0x[0-9a-fA-F]+)\b', pathlib.Path(sys.argv[1]).read_text(), re.M)
-print(match.group(1) if match else '')
+text = pathlib.Path(sys.argv[1]).read_text()
+rows = [line for line in text.splitlines() if re.match(r'^\s*0x[0-9a-fA-F]+\b', line)]
+assert len(rows) >= 3, 'No allocation addresses: ownership evidence is missing'
+# heap -s 已按大小排序，只保留最大分配的地址/类型/大小，不含内容。
+pathlib.Path(sys.argv[2]).write_text('\n'.join(rows[:50]) + '\n')
+pathlib.Path(sys.argv[3]).write_text('\n'.join(re.search(r'0x[0-9a-fA-F]+', line).group() for line in rows[:3]) + '\n')
 PY
-)
-if [[ "$address" =~ ^0x[0-9a-fA-F]+$ ]]; then
-  leaks --noContent --nostacks "--traceTree=$address" "$active_pid" > "$output/data-reference-tree.txt" 2>&1 || true
-fi
+while read -r address; do
+  [[ "$address" =~ ^0x[0-9a-fA-F]+$ ]]
+  leaks --noContent --nostacks "--traceTree=$address" "$active_pid" > "$output/data-reference-tree-$address.txt" 2>&1
+done < "$results/trace-addresses.txt"
 heap -s --noContent '--addresses=NSImage' "$active_pid" > "$output/image-addresses-metadata.txt" 2>&1 || true
 for _ in {1..4}; do sleep 60; done
 sample idle-after-5min
@@ -81,6 +85,7 @@ done
 sample allocator-relief
 sleep 15
 sample allocator-relief-15
+snapshot after-relief
 python3 - "$results/run.log" <<'PY'
 import pathlib, re, sys
 log = pathlib.Path(sys.argv[1]).read_text()
