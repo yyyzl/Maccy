@@ -10,6 +10,7 @@ typealias HistoryItem = HistoryRecord
 typealias HistoryItemContent = HistoryContent
 
 final class HistoryRecord: PersistentModel {
+  private let titleRegistrar = ObservationRegistrar()
   // Non-persistent fields used only by the application-icon mock.
   var application: String?
   var pin: String?
@@ -28,8 +29,15 @@ final class HistoryRecord: PersistentModel {
   required init(backingData: any BackingData<HistoryRecord>) { persistentBackingData = backingData }
   init(title: String) { self.title = title }
   var title: String {
-    get { getValue(forKey: \HistoryRecord.title) }
-    set { setValue(forKey: \HistoryRecord.title, to: newValue) }
+    get {
+      titleRegistrar.access(self, keyPath: \HistoryRecord.title)
+      return getValue(forKey: \HistoryRecord.title)
+    }
+    set {
+      titleRegistrar.withMutation(of: self, keyPath: \HistoryRecord.title) {
+        setValue(forKey: \HistoryRecord.title, to: newValue)
+      }
+    }
   }
 }
 

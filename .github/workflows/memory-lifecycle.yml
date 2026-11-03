@@ -10,12 +10,25 @@ permissions:
 
 jobs:
   build:
+    name: Build ${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, observer, candidate]
     runs-on: macos-26-intel
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Select production files for the controlled comparison
+        if: matrix.variant != 'candidate'
+        run: |
+          git restore --source=5b90af348c2ae06c74fd06ae70aff9e1ea8d0f24 -- \
+            Maccy/Observables/HistoryItemDecorator.swift Maccy/Observables/Popup.swift
+          if [ '${{ matrix.variant }}' = observer ]; then
+            git restore --source=308e092 -- Maccy/Observables/HistoryItemDecorator.swift
+          fi
       - name: Build ARM64 Release with isolated operations
         run: |
           xcodebuild -project Maccy.xcodeproj -scheme Maccy -configuration Release \
@@ -30,6 +43,15 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Maccy-lifecycle.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: Maccy-lifecycle-arm64
+          name: Maccy-lifecycle-${{ matrix.variant }}-arm64
           path: ${{ runner.temp }}/Maccy-lifecycle.zip
           retention-days: 7
+      - name: Verify image lifetimes and existing isolated contracts
+        if: matrix.variant == 'candidate'
+        run: |
+          sh tests-cli/decorator/run.sh
+          sh tests-cli/image-loader/run.sh
+          sh tests-cli/image-resize/run.sh
+          sh tests-cli/clipboard-metadata/run.sh
+          sh tests-cli/smoke-compile/run.sh
+          sh tests-cli/trial-updater/run.sh

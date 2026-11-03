@@ -77,6 +77,9 @@ class Popup {
   func reset() {
     state = .toggle
     KeyboardShortcuts.enable(.popup)
+    HistoryItemDecorator.previewThrottler.cancel()
+    History.shared.selectedItem = nil
+    History.shared.all.forEach { $0.showPreview = false }
   }
 
   func close() {

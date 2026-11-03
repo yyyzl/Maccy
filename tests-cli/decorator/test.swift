@@ -29,8 +29,20 @@ struct DecoratorTest {
     content.item = record
     try context.save()
 
+    weak var discarded: HistoryItemDecorator?
+    autoreleasepool {
+      let temporary = HistoryItemDecorator(record, universalClipboardHint: false)
+      discarded = temporary
+    }
+    require(discarded == nil, "observation callbacks retain a discarded decorator")
+    print("PASS: observation callbacks release a discarded decorator")
+
     let decorator = HistoryItemDecorator(record, universalClipboardHint: false)
     require(record.clipboardReads == 0, "hint caused original-content lookup")
+    record.title += "/edited"
+    try await Task.sleep(nanoseconds: 30_000_000)
+    require(decorator.title == record.title, "weak observation stopped updating a live decorator")
+    try context.save()
     decorator.ensureThumbnailImage()
     for _ in 0..<30 where decorator.thumbnailImage == nil {
       try await Task.sleep(nanoseconds: 10_000_000)
@@ -45,6 +57,19 @@ struct DecoratorTest {
       try await Task.sleep(nanoseconds: 10_000_000)
     }
     require(decorator.thumbnailImage != nil, "thumbnail did not regenerate after cleanup")
+    decorator.ensurePreviewImage()
+    for _ in 0..<30 where decorator.previewImage == nil {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    require(decorator.previewImage != nil, "preview did not generate")
+    decorator.showPreview = true
+    decorator.showPreview = false
+    require(decorator.previewImage == nil && decorator.previewImageGenerationTask == nil,
+            "dismissing the preview retains its bitmap or task")
+    decorator.ensurePreviewImage()
+    decorator.showPreview = false
+    try await Task.sleep(nanoseconds: 30_000_000)
+    require(decorator.previewImage == nil, "a cancelled preview regenerated after dismissal")
     decorator.cleanupImages()
     print("PASS: decorator generates, releases and regenerates an isolated thumbnail")
   }

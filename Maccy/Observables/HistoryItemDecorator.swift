@@ -34,7 +34,11 @@ class HistoryItemDecorator: Identifiable, Hashable {
     }
   }
   var shortcuts: [KeyShortcut] = []
-  var showPreview: Bool = false
+  var showPreview: Bool = false {
+    didSet {
+      if !showPreview { cleanupPreviewImage() }
+    }
+  }
 
   var application: String? {
     if item.universalClipboard {
@@ -112,12 +116,15 @@ class HistoryItemDecorator: Identifiable, Hashable {
   @MainActor
   func cleanupImages() {
     thumbnailImageGenerationTask?.cancel()
-    previewImageGenerationTask?.cancel()
     thumbnailImageGenerationTask = nil
-    previewImageGenerationTask = nil
     thumbnailImage?.recache()
-    previewImage?.recache()
     thumbnailImage = nil
+    cleanupPreviewImage()
+  }
+
+  private func cleanupPreviewImage() {
+    previewImageGenerationTask?.cancel()
+    previewImageGenerationTask = nil
     previewImage = nil
   }
 
