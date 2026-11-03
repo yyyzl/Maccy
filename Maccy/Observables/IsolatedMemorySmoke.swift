@@ -352,6 +352,7 @@ enum IsolatedMemoryLifecycle {
           let operationCount = scenario == "long" ? cycleCount : 12
           for cycle in 1...operationCount {
             var captureMilliseconds = 0.0
+            var capturedImageID: PersistentIdentifier?
             autoreleasepool {
               Clipboard.shared.changeCount += 1
               let textStarted = Date.timeIntervalSinceReferenceDate
@@ -364,6 +365,7 @@ enum IsolatedMemoryLifecycle {
                 let added = History.shared.add(captured)
                 imageIDs.insert(added.item.persistentModelID)
                 newImageIDs.insert(added.item.persistentModelID)
+                if scenario == "interaction" { capturedImageID = added.item.persistentModelID }
               }
               if cycle % 5 == 0 {
                 Clipboard.shared.changeCount += 1
@@ -381,7 +383,8 @@ enum IsolatedMemoryLifecycle {
               NSLog("[MaccyLifecycle] STAGE_FAIL no_images cycle=%d", cycle)
               throw LifecycleError.invalidFixture
             }
-            let item = images[(cycle - 1) % min(6, images.count)]
+            let item = capturedImageID.flatMap { id in images.first { $0.item.persistentModelID == id } } ??
+              images[(cycle - 1) % min(6, images.count)]
             let initialSelection = History.shared.unpinnedItems.first?.id ?? History.shared.pinnedItems.first?.id
             if visibleCIWindow {
               AppState.shared.popup.open(height: 600, at: .center)
@@ -474,7 +477,7 @@ enum IsolatedMemoryLifecycle {
                   History.shared.all.filter({ $0.thumbnailImage != nil }).count, captureMilliseconds)
             try await Task.sleep(nanoseconds: scenario == "long" ? 15_000_000_000 : 500_000_000)
           }
-          guard previewedNewImages.count >= (scenario == "long" ? 10 : 2) else {
+          guard previewedNewImages.count >= (scenario == "long" ? 10 : 4) else {
             NSLog("[MaccyLifecycle] STAGE_FAIL new_image_coverage count=%d", previewedNewImages.count)
             throw LifecycleError.invalidFixture
           }
