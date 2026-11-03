@@ -266,11 +266,15 @@ enum IsolatedMemoryLifecycle {
               History.shared.add(text(1_000 + cycle))
               if cycle % 3 == 0 {
                 Clipboard.shared.changeCount += 1
-                History.shared.add(image(1_000 + cycle))
+                let captured = image(1_000 + cycle)
+                captured.title = captured.generateTitle()
+                History.shared.add(captured)
               }
               if cycle % 5 == 0 {
                 Clipboard.shared.changeCount += 1
-                History.shared.add(image(0))
+                let captured = image(0)
+                captured.title = captured.generateTitle()
+                History.shared.add(captured)
               }
             }
             let images = History.shared.all.filter({ $0.title.contains("image") })
