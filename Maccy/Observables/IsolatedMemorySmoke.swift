@@ -397,6 +397,8 @@ enum IsolatedMemoryLifecycle {
               NSLog("[MaccyLifecycle] STAGE_FAIL activation_selection cycle=%d", cycle)
               throw LifecycleError.invalidFixture
             }
+            // 搜索框初始化会再排一个 0.2 秒回调，先让它完成再模拟用户选图。
+            try await Task.sleep(nanoseconds: 500_000_000)
             guard panel.isVisible == visibleCIWindow, panel.isKeyWindow == visibleCIWindow else {
               NSLog("[MaccyLifecycle] STAGE_FAIL window_state cycle=%d visible=%d key=%d", cycle,
                     panel.isVisible ? 1 : 0, panel.isKeyWindow ? 1 : 0)
@@ -413,7 +415,7 @@ enum IsolatedMemoryLifecycle {
             item.showPreview = true
             item.ensurePreviewImage()
             try await Task.sleep(nanoseconds: 300_000_000)
-            guard item.thumbnailImage != nil, item.previewImage != nil else {
+            guard item.isSelected, item.showPreview, item.thumbnailImage != nil, item.previewImage != nil else {
               NSLog("[MaccyLifecycle] STAGE_FAIL image_ready cycle=%d thumbnail=%d preview=%d selected=%d show=%d thumbnail_task=%d preview_task=%d deleted=%d", cycle,
                     item.thumbnailImage != nil ? 1 : 0, item.previewImage != nil ? 1 : 0,
                     item.isSelected ? 1 : 0, item.showPreview ? 1 : 0,
