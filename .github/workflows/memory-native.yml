@@ -34,7 +34,7 @@ jobs:
           sw_vers > "$RUNNER_TEMP/capture-probe/host.txt"
           uname -m >> "$RUNNER_TEMP/capture-probe/host.txt"
           git rev-parse HEAD >> "$RUNNER_TEMP/capture-probe/host.txt"
-          xcrun swiftc -O tests-cli/swiftdata-capture/main.swift -o "$RUNNER_TEMP/probe"
+          xcrun swiftc -O tests-cli/swiftdata-capture/models.swift tests-cli/swiftdata-capture/main.swift -o "$RUNNER_TEMP/probe"
           echo '<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>' > "$RUNNER_TEMP/probe-entitlements.plist"
           codesign --force --sign - --entitlements "$RUNNER_TEMP/probe-entitlements.plist" "$RUNNER_TEMP/probe"
       - name: Measure main and short writer contexts
