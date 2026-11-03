@@ -339,6 +339,9 @@ enum IsolatedMemoryLifecycle {
           }
         case "long", "interaction":
           guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
+          // 仅远端一次性 CI 桌面显示合成窗口，本机始终保持隐藏。
+          let visibleCIWindow = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
+          NSLog("[MaccyLifecycle] INTERACTION_MODE visible_ci=%@", visibleCIWindow ? "YES" : "NO")
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
           var imageIDs = Set(History.shared.all.filter({ $0.title.contains("image") }).map { $0.item.persistentModelID })
@@ -378,7 +381,11 @@ enum IsolatedMemoryLifecycle {
             }
             let item = images[(cycle - 1) % min(6, images.count)]
             let initialSelection = History.shared.unpinnedItems.first?.id ?? History.shared.pinnedItems.first?.id
-            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            if visibleCIWindow {
+              AppState.shared.popup.open(height: 600, at: .center)
+            } else {
+              NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            }
             panel.contentView?.layoutSubtreeIfNeeded()
             // 等待列表的激活回调完成，避免它随后覆盖本次明确选择。
             for _ in 0..<200 where History.shared.selectedItem?.id != initialSelection {
@@ -388,7 +395,7 @@ enum IsolatedMemoryLifecycle {
               NSLog("[MaccyLifecycle] STAGE_FAIL activation_selection cycle=%d", cycle)
               throw LifecycleError.invalidFixture
             }
-            guard !panel.isVisible, !panel.isKeyWindow else {
+            guard panel.isVisible == visibleCIWindow, panel.isKeyWindow == visibleCIWindow else {
               NSLog("[MaccyLifecycle] STAGE_FAIL window_state cycle=%d visible=%d key=%d", cycle,
                     panel.isVisible ? 1 : 0, panel.isKeyWindow ? 1 : 0)
               throw LifecycleError.invalidFixture
@@ -441,7 +448,9 @@ enum IsolatedMemoryLifecycle {
               }
             }
             AppState.shared.popup.close()
-            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+            if !visibleCIWindow {
+              NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+            }
             panel.contentView?.layoutSubtreeIfNeeded()
             try Storage.shared.context.save()
             // Existing pinned deduplication can temporarily leave 199 unpinned items.
