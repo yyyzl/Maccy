@@ -278,15 +278,17 @@ enum IsolatedMemoryLifecycle {
           let plain = Data("Dedup contract original".utf8)
           let first = HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain)])
           first.title = "Contract original title"
-          first.pin = "b"
           first.application = "synthetic.original"
           first.firstCopiedAt = Date(timeIntervalSince1970: 1000)
           first.numberOfCopies = 4
-          add(first)
+          let firstDecorator = add(first)
+          first.pin = "b"
+          let pinnedPosition = History.shared.all.firstIndex(where: { $0.id == firstDecorator.id })
           let duplicate = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain)]))
           guard duplicate.item.pin == "b", duplicate.item.title == "Contract original title",
             duplicate.item.application == "synthetic.original", duplicate.item.numberOfCopies == 5,
-            duplicate.item.firstCopiedAt == Date(timeIntervalSince1970: 1000)
+            duplicate.item.firstCopiedAt == Date(timeIntervalSince1970: 1000),
+            History.shared.all.firstIndex(where: { $0.id == duplicate.id }) == pinnedPosition
           else { throw LifecycleError.originalMismatch }
           let transient = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain),
             HistoryItemContent(type: modifiedType, value: Data("unmapped".utf8))]))
