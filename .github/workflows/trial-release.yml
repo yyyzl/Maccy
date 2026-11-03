@@ -37,6 +37,8 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryTrial \
             MARKETING_VERSION=2.6.1 \
             CURRENT_PROJECT_VERSION=60 \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL' \
+            'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' \
             CODE_SIGNING_ALLOWED=NO \
             build
 
@@ -45,6 +47,10 @@ jobs:
           app="$RUNNER_TEMP/MaccyTrialDerivedData/Build/Products/Release/Maccy.app"
           info="$app/Contents/Info.plist"
           lipo "$app/Contents/MacOS/Maccy" -verify_arch arm64
+          if otool -L "$app/Contents/MacOS/Maccy" | grep -Fq 'Sparkle.framework'; then
+            echo 'Trial binary unexpectedly links the Sparkle framework' >&2
+            exit 1
+          fi
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info")" = 'org.yyyzl.MaccyMemoryTrial'
           /usr/libexec/PlistBuddy -c 'Set :CFBundleName Maccy Memory Trial' "$info"
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Maccy Memory Trial' "$info"
@@ -59,6 +65,7 @@ jobs:
           sh tests-cli/image-loader/run.sh
           sh tests-cli/decorator/run.sh
           sh tests-cli/smoke-compile/run.sh
+          sh tests-cli/trial-updater/run.sh
 
       - name: Package unsigned trial
         run: |

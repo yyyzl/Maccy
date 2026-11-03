@@ -1,6 +1,8 @@
 import Defaults
 import KeyboardShortcuts
+#if !MEMORY_TRIAL
 import Sparkle
+#endif
 import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -24,7 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusItemVisibilityObserver: NSKeyValueObservation?
 
   func applicationWillFinishLaunching(_ notification: Notification) { // swiftlint:disable:this function_body_length
-    #if DEBUG
+    #if DEBUG && !MEMORY_TRIAL
     if CommandLine.arguments.contains("enable-testing") {
       SPUUpdater(hostBundle: Bundle.main,
                  applicationBundle: Bundle.main,

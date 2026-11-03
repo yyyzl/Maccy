@@ -1,3 +1,13 @@
+#if MEMORY_TRIAL
+import Observation
+
+// An isolated trial must never replace itself with the upstream release.
+@Observable
+class SoftwareUpdater {
+  var automaticallyChecksForUpdates = false
+  func checkForUpdates() {}
+}
+#else
 import Sparkle
 
 @Observable
@@ -35,3 +45,4 @@ class SoftwareUpdater {
     updater.checkForUpdates()
   }
 }
+#endif
