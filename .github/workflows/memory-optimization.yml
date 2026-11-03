@@ -41,10 +41,9 @@ jobs:
 
       - name: Verify app supports Apple Silicon
         run: |
-          lipo -verify_arch arm64 \
-            "$RUNNER_TEMP/MaccyDerivedData/Build/Products/Debug/Maccy.app/Contents/MacOS/Maccy"
-          lipo -archs \
-            "$RUNNER_TEMP/MaccyDerivedData/Build/Products/Debug/Maccy.app/Contents/MacOS/Maccy"
+          app="$RUNNER_TEMP/MaccyDerivedData/Build/Products/Debug/Maccy.app/Contents/MacOS/Maccy"
+          lipo "$app" -verify_arch arm64
+          lipo "$app" -archs
 
       - name: Run isolated regression tests
         run: |
