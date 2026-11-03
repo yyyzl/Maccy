@@ -64,9 +64,9 @@ jobs:
             directory=$(sed -n 's/^Results: //p' "$RUNNER_TEMP/memory-results/contracts-$variant-console.log" | head -1)
             [[ "$directory" =~ ^/tmp/maccy-lifecycle-results\.[A-Za-z0-9]+$ ]]
             test -f "$directory/contracts.log"
-            rg 'CONTRACTS_OK' "$directory/contracts.log"
-            rg 'READY scenario=contracts' "$directory/contracts.log"
-            rg '\[MaccyLifecycle\]' "$directory/contracts.log" > "$RUNNER_TEMP/memory-results/contracts-$variant.log"
+            grep -E 'CONTRACTS_OK' "$directory/contracts.log"
+            grep -E 'READY scenario=contracts' "$directory/contracts.log"
+            grep -E '\[MaccyLifecycle\]' "$directory/contracts.log" > "$RUNNER_TEMP/memory-results/contracts-$variant.log"
           done
       - name: Measure the original baseline
         continue-on-error: true
