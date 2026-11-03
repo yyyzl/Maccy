@@ -164,8 +164,11 @@ enum IsolatedMemoryLifecycle {
     guard Bundle.main.bundleIdentifier == "org.yyyzl.MaccyMemoryLifecycle",
       UserDefaults.standard.bool(forKey: "ignoreEvents"),
       !UserDefaults.standard.bool(forKey: "clearOnQuit"),
+      let cycleCount = Int(args.first(where: { $0.hasPrefix("--cycles=") }).map {
+        String($0.dropFirst("--cycles=".count))
+      } ?? "60"), [60, 240].contains(cycleCount),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "copy", "long"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "copy", "long"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -232,6 +235,7 @@ enum IsolatedMemoryLifecycle {
           // Closing the popup must release these caches without a row disappearing.
           for item in History.shared.all.filter({ $0.title.contains("image") }).prefix(6) {
             item.ensureThumbnailImage()
+            item.showPreview = true
             item.ensurePreviewImage()
           }
           try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -239,6 +243,82 @@ enum IsolatedMemoryLifecycle {
           NSLog("[MaccyLifecycle] CLOSED previews=%d thumbnails=%d",
                 History.shared.all.filter({ $0.previewImage != nil }).count,
                 History.shared.all.filter({ $0.thumbnailImage != nil }).count)
+        case "visibility":
+          guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
+          panel.contentView?.layoutSubtreeIfNeeded()
+          try await Task.sleep(nanoseconds: 500_000_000)
+          for cycle in 1...3 {
+            // Simulate our custom scene phase without showing a window or taking focus.
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard !panel.isVisible, !panel.isKeyWindow,
+              History.shared.all.contains(where: { $0.thumbnailImage != nil }),
+              let selection = AppState.shared.selection
+            else { throw LifecycleError.invalidFixture }
+            AppState.shared.highlightNext()
+            guard AppState.shared.selection != selection else { throw LifecycleError.invalidFixture }
+            AppState.shared.highlightPrevious()
+            guard AppState.shared.selection == selection else { throw LifecycleError.invalidFixture }
+            AppState.shared.popup.close()
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard History.shared.all.allSatisfy({ $0.thumbnailImage == nil && $0.previewImage == nil }) else {
+              throw LifecycleError.invalidFixture
+            }
+            NSLog("[MaccyLifecycle] VISIBILITY_OK cycle=%d simulated_focus=YES", cycle)
+          }
+        case "contracts":
+          @MainActor
+          func add(_ item: HistoryItem) -> HistoryItemDecorator {
+            Clipboard.shared.changeCount += 1
+            return History.shared.add(item)
+          }
+          let stringType = NSPasteboard.PasteboardType.string.rawValue
+          let modifiedType = NSPasteboard.PasteboardType.modified.rawValue
+          let plain = Data("Dedup contract original".utf8)
+          let first = HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain)])
+          first.title = "Contract original title"
+          first.application = "synthetic.original"
+          first.firstCopiedAt = Date(timeIntervalSince1970: 1000)
+          first.numberOfCopies = 4
+          let firstDecorator = add(first)
+          first.pin = "b"
+          guard let pinnedPosition = History.shared.all.firstIndex(where: { $0.id == firstDecorator.id }) else {
+            throw LifecycleError.invalidFixture
+          }
+          let duplicate = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain)]))
+          guard duplicate.item.pin == "b", duplicate.item.title == "Contract original title",
+            duplicate.item.application == "synthetic.original", duplicate.item.numberOfCopies == 5,
+            duplicate.item.firstCopiedAt == Date(timeIntervalSince1970: 1000),
+            History.shared.all.firstIndex(where: { $0.id == duplicate.id }) == pinnedPosition
+          else { throw LifecycleError.originalMismatch }
+          let transient = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain),
+            HistoryItemContent(type: modifiedType, value: Data("unmapped".utf8))]))
+          guard transient.item.numberOfCopies == 6, transient.item.pin == "b",
+            transient.item.contents.count == 1, transient.item.contents.first?.value == plain
+          else { throw LifecycleError.originalMismatch }
+
+          let richText = Data("Dedup contract rich".utf8)
+          let html = Data("<b>Dedup contract rich</b>".utf8)
+          add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: richText),
+            HistoryItemContent(type: NSPasteboard.PasteboardType.html.rawValue, value: html)]))
+          let superseded = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: richText)]))
+          guard superseded.item.contents.count == 2,
+            superseded.item.contents.contains(where: { $0.type == NSPasteboard.PasteboardType.html.rawValue && $0.value == html })
+          else { throw LifecycleError.originalMismatch }
+
+          let original = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: Data("Modify original".utf8))]))
+          let originalDate = original.item.firstCopiedAt
+          let originalChange = Clipboard.shared.changeCount
+          let edited = Data("Modify edited".utf8)
+          let modified = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: edited),
+            HistoryItemContent(type: modifiedType, value: Data(String(originalChange).utf8))]))
+          guard modified.item.firstCopiedAt == originalDate, modified.item.numberOfCopies == 2,
+            modified.item.contents.contains(where: { $0.type == stringType && $0.value == edited }),
+            modified.item.contents.contains(where: { $0.type == modifiedType })
+          else { throw LifecycleError.originalMismatch }
+          NSLog("[MaccyLifecycle] CONTRACTS_OK pin=YES metadata=YES transient=YES supersedes=YES modified=YES")
         case "copy":
           let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
           defer { board.releaseGlobally() }
@@ -258,34 +338,55 @@ enum IsolatedMemoryLifecycle {
             }
           }
         case "long":
+          guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
-          for cycle in 1...60 {
+          var imageIDs = Set(History.shared.all.filter({ $0.title.contains("image") }).map { $0.item.persistentModelID })
+          var newImageIDs = Set<PersistentIdentifier>()
+          var previewedNewImages = Set<PersistentIdentifier>()
+          for cycle in 1...cycleCount {
+            var captureMilliseconds = 0.0
             autoreleasepool {
               Clipboard.shared.changeCount += 1
+              let textStarted = Date.timeIntervalSinceReferenceDate
               History.shared.add(text(1_000 + cycle))
+              captureMilliseconds = (Date.timeIntervalSinceReferenceDate - textStarted) * 1000
               if cycle % 3 == 0 {
                 Clipboard.shared.changeCount += 1
                 let captured = image(1_000 + cycle)
                 captured.title = captured.generateTitle()
-                History.shared.add(captured)
+                let added = History.shared.add(captured)
+                imageIDs.insert(added.item.persistentModelID)
+                newImageIDs.insert(added.item.persistentModelID)
               }
               if cycle % 5 == 0 {
                 Clipboard.shared.changeCount += 1
                 let captured = image(0)
                 captured.title = captured.generateTitle()
-                History.shared.add(captured)
+                let added = History.shared.add(captured)
+                imageIDs.insert(added.item.persistentModelID)
               }
             }
-            let images = History.shared.all.filter({ $0.title.contains("image") })
+            let images = History.shared.all.filter({ imageIDs.contains($0.item.persistentModelID) })
             guard !images.isEmpty else { throw LifecycleError.invalidFixture }
             let item = images[(cycle - 1) % min(6, images.count)]
-            History.shared.selectedItem = item
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 100_000_000)
+            guard !panel.isVisible, !panel.isKeyWindow else { throw LifecycleError.invalidFixture }
+            AppState.shared.selection = item.id
             _ = item.application
             _ = item.text
             item.ensureThumbnailImage()
+            item.showPreview = true
             item.ensurePreviewImage()
             try await Task.sleep(nanoseconds: 300_000_000)
+            guard item.thumbnailImage != nil, item.previewImage != nil else {
+              throw LifecycleError.invalidFixture
+            }
+            if newImageIDs.contains(item.item.persistentModelID) {
+              previewedNewImages.insert(item.item.persistentModelID)
+            }
             try autoreleasepool {
               let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
               defer { board.releaseGlobally() }
@@ -294,6 +395,12 @@ enum IsolatedMemoryLifecycle {
               guard let stored = context.model(for: item.item.persistentModelID) as? HistoryItem else {
                 throw LifecycleError.originalMismatch
               }
+              let expectedTypes: Set<String> = item.isPinned ?
+                [NSPasteboard.PasteboardType.tiff.rawValue, NSPasteboard.PasteboardType.png.rawValue] :
+                [NSPasteboard.PasteboardType.tiff.rawValue]
+              guard Set(stored.contents.map(\.type)) == expectedTypes,
+                stored.contents.allSatisfy({ $0.value != nil })
+              else { throw LifecycleError.originalMismatch }
               for content in stored.contents {
                 guard board.data(forType: .init(content.type)) == content.value else {
                   throw LifecycleError.originalMismatch
@@ -301,17 +408,21 @@ enum IsolatedMemoryLifecycle {
               }
             }
             AppState.shared.popup.close()
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+            panel.contentView?.layoutSubtreeIfNeeded()
             try Storage.shared.context.save()
             // Existing pinned deduplication can temporarily leave 199 unpinned items.
             guard (200...201).contains(History.shared.all.count),
               History.shared.pinnedItems.count == 1,
               History.shared.pinnedItems.first?.item.pin == "p"
             else { throw LifecycleError.invalidFixture }
-            NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d", cycle,
+            NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d text_capture_ms=%.1f", cycle,
                   History.shared.all.filter({ $0.previewImage != nil }).count,
-                  History.shared.all.filter({ $0.thumbnailImage != nil }).count)
+                  History.shared.all.filter({ $0.thumbnailImage != nil }).count, captureMilliseconds)
             try await Task.sleep(nanoseconds: 15_000_000_000)
           }
+          guard previewedNewImages.count >= 10 else { throw LifecycleError.invalidFixture }
+          NSLog("[MaccyLifecycle] NEW_IMAGES_PREVIEWED count=%d", previewedNewImages.count)
         default: break
         }
         try Storage.shared.context.save()

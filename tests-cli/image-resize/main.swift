@@ -61,6 +61,23 @@ autoreleasepool {
   let small = makeImage(width: 100, height: 50)
   require(small.resized(to: NSSize(width: 340, height: 200)) === small, "small image was enlarged")
 }
+autoreleasepool {
+  let image = makeImage(width: 800, height: 400)
+  let preview = image.resized(to: NSSize(width: 700, height: 350))
+  let bitmap = preview.representations.first!
+  require(preview.size == NSSize(width: 700, height: 350), "preview logical size changed")
+  require(bitmap.pixelsWide <= 800 && bitmap.pixelsHigh <= 400, "preview upscales source pixels")
+}
+autoreleasepool {
+  let retina = makeImage(width: 1600, height: 800)
+  retina.size = NSSize(width: 800, height: 400)
+  let preview = retina.resized(to: NSSize(width: 700, height: 350))
+  let scale = NSScreen.main?.backingScaleFactor ?? 2
+  let bitmap = preview.representations.first!
+  require(bitmap.pixelsWide == min(1600, Int(ceil(700 * scale))) &&
+          bitmap.pixelsHigh == min(800, Int(ceil(350 * scale))),
+          "preview discarded available Retina source resolution")
+}
 if CommandLine.arguments.count > 1 {
   weak var jpegSource: NSImage?
   var jpegThumbnail: NSImage?

@@ -5,6 +5,7 @@ struct HistoryItemView: View {
   @Bindable var item: HistoryItemDecorator
 
   @Environment(AppState.self) private var appState
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
     ListItemView(
@@ -18,8 +19,12 @@ struct HistoryItemView: View {
     ) {
       Text(verbatim: item.title)
     }
-    .onAppear {
-      item.ensureThumbnailImage()
+    .onChange(of: scenePhase, initial: true) {
+      if scenePhase == .active {
+        item.ensureThumbnailImage()
+      } else {
+        item.cleanupImages()
+      }
     }
     .onDisappear {
       item.cleanupImages()

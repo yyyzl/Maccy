@@ -74,12 +74,16 @@ class Popup {
     AppState.shared.appDelegate?.panel.open(height: height, at: popupPosition)
   }
 
+  @MainActor
   func reset() {
     state = .toggle
     KeyboardShortcuts.enable(.popup)
     HistoryItemDecorator.previewThrottler.cancel()
     History.shared.selectedItem = nil
-    History.shared.all.forEach { $0.showPreview = false }
+    History.shared.all.forEach {
+      $0.showPreview = false
+      $0.cleanupImages()
+    }
   }
 
   func close() {

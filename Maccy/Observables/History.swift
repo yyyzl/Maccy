@@ -366,13 +366,20 @@ class History { // swiftlint:disable:this type_body_length
   @MainActor
   private func findSimilarItem(_ item: HistoryItem) -> HistoryItem? {
     let descriptor = FetchDescriptor<HistoryItem>()
-    func duplicateIDs(in context: ModelContext) -> [PersistentIdentifier]? {
+    func duplicateIDs(in context: ModelContext, isolateContents: Bool = false) -> [PersistentIdentifier]? {
       guard let records = try? context.fetch(descriptor) else { return nil }
-      return records.filter({ $0 == item || $0.supersedes(item) }).map(\.persistentModelID)
+      return records.filter { record in
+        guard isolateContents else { return record == item || record.supersedes(item) }
+        return autoreleasepool {
+          let itemContext = ModelContext(context.container)
+          let candidate = itemContext.model(for: record.persistentModelID) as? HistoryItem ?? record
+          return candidate == item || candidate.supersedes(item)
+        }
+      }.map(\.persistentModelID)
     }
     let context = Storage.shared.context
     let duplicates = context.hasChanges ? duplicateIDs(in: context) : autoreleasepool {
-      duplicateIDs(in: ModelContext(Storage.shared.container))
+      duplicateIDs(in: ModelContext(Storage.shared.container), isolateContents: true)
     }
     if let duplicates {
       if duplicates.count > 1 {
