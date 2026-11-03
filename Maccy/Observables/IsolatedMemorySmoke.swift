@@ -269,6 +269,7 @@ enum IsolatedMemoryLifecycle {
             NSLog("[MaccyLifecycle] VISIBILITY_OK cycle=%d simulated_focus=YES", cycle)
           }
         case "contracts":
+          @MainActor
           func add(_ item: HistoryItem) -> HistoryItemDecorator {
             Clipboard.shared.changeCount += 1
             return History.shared.add(item)
