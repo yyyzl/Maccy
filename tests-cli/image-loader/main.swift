@@ -60,12 +60,35 @@ try MainActor.assumeIsolated {
   let preserved = try fresh.fetch(FetchDescriptor<HistoryContent>()).first!.value!
   require(preserved == originalBytes, "source image bytes changed")
 
+  let unrelated = HistoryRecord(title: "another-item")
+  context.insert(unrelated)
+  try context.save()
+  unrelated.title += "/edited"
+  LoaderProbe.lastContext = nil
+  _ = HistoryImageLoader.resizedImage(for: record, maxSize: NSSize(width: 340, height: 200))
+  require(LoaderProbe.lastContext != ObjectIdentifier(context),
+          "an unrelated edit loaded a saved image in the long-lived context")
+  try context.save()
+
   record.title += "/edited"
   require(context.hasChanges, "fixture did not create unsaved changes")
   LoaderProbe.lastContext = nil
   let changedThumbnail = HistoryImageLoader.resizedImage(for: record, maxSize: NSSize(width: 340, height: 200))
   require(changedThumbnail != nil, "unsaved item lost its preview")
   require(LoaderProbe.lastContext == ObjectIdentifier(context), "unsaved edits were read from a stale context")
+  try context.save()
+  content.value = originalBytes
+  content.tag += "-edited"
+  LoaderProbe.lastContext = nil
+  _ = HistoryImageLoader.resizedImage(for: record, maxSize: NSSize(width: 340, height: 200))
+  require(LoaderProbe.lastContext == ObjectIdentifier(context),
+          "unsaved content changes were read from a stale context")
+  try context.save()
+  context.delete(content)
+  LoaderProbe.lastContext = nil
+  _ = HistoryImageLoader.resizedImage(for: record, maxSize: NSSize(width: 340, height: 200))
+  require(LoaderProbe.lastContext == ObjectIdentifier(context),
+          "an unsaved content deletion was read from a stale context")
 
   let uninserted = HistoryRecord(title: "not-in-a-context")
   require(HistoryImageLoader.resizedImage(for: uninserted, maxSize: NSSize(width: 340, height: 200)) == nil,

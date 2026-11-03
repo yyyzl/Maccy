@@ -41,7 +41,7 @@ class HistoryItemDecorator: Identifiable, Hashable {
   }
 
   var application: String? {
-    if item.universalClipboard {
+    if HistoryItemReader.read(item, { $0.universalClipboard }) {
       return "iCloud"
     }
 
@@ -61,7 +61,7 @@ class HistoryItemDecorator: Identifiable, Hashable {
   var applicationImage: ApplicationImage
 
   // 10k characters seems to be more than enough on large displays
-  var text: String { item.previewableText.shortened(to: 10_000) }
+  var text: String { HistoryItemReader.read(item) { $0.previewableText.shortened(to: 10_000) } }
 
   var isPinned: Bool { item.pin != nil }
   var isUnpinned: Bool { item.pin == nil }
@@ -125,6 +125,7 @@ class HistoryItemDecorator: Identifiable, Hashable {
   private func cleanupPreviewImage() {
     previewImageGenerationTask?.cancel()
     previewImageGenerationTask = nil
+    previewImage?.recache()
     previewImage = nil
   }
 
