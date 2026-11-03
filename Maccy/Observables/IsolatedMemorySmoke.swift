@@ -415,9 +415,23 @@ enum IsolatedMemoryLifecycle {
             _ = item.application
             _ = item.text
             item.ensureThumbnailImage()
-            item.showPreview = true
+            if visibleCIWindow {
+              // 等待应用默认的 1500 ms 预览调度，避免滚动途中强制呈现后被关闭。
+              for _ in 0..<300 where !item.showPreview {
+                try await Task.sleep(nanoseconds: 10_000_000)
+              }
+              guard item.isSelected, item.showPreview else {
+                NSLog("[MaccyLifecycle] STAGE_FAIL automatic_preview cycle=%d selected=%d show=%d", cycle,
+                      item.isSelected ? 1 : 0, item.showPreview ? 1 : 0)
+                throw LifecycleError.invalidFixture
+              }
+            } else {
+              item.showPreview = true
+            }
             item.ensurePreviewImage()
-            try await Task.sleep(nanoseconds: 300_000_000)
+            for _ in 0..<100 where item.thumbnailImage == nil || item.previewImage == nil {
+              try await Task.sleep(nanoseconds: 10_000_000)
+            }
             guard item.isSelected, item.showPreview, item.thumbnailImage != nil, item.previewImage != nil else {
               NSLog("[MaccyLifecycle] STAGE_FAIL image_ready cycle=%d thumbnail=%d preview=%d selected=%d show=%d thumbnail_task=%d preview_task=%d deleted=%d", cycle,
                     item.thumbnailImage != nil ? 1 : 0, item.previewImage != nil ? 1 : 0,
