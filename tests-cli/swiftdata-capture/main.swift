@@ -26,10 +26,10 @@ final class HistoryItemContent {
 }
 
 let mode = CommandLine.arguments[1]
-precondition(["main", "writer", "rollback"].contains(mode))
+precondition(["main", "writer", "type", "value", "reader", "rollback"].contains(mode))
 let config = ModelConfiguration(url: URL(fileURLWithPath: CommandLine.arguments[2]))
 let container = try ModelContainer(for: HistoryItem.self, configurations: config)
-let metadataContext = ModelContext(container)
+let metadataContext = MainActor.assumeIsolated { container.mainContext }
 var items: [HistoryItem] = []
 var hashes: [PersistentIdentifier: SHA256.Digest] = [:]
 for index in 0..<20 {
@@ -45,6 +45,16 @@ for index in 0..<20 {
     let metadata = metadataContext.model(for: item.persistentModelID) as! HistoryItem
     precondition(metadata.title == "Synthetic image \(index)")
     items.append(metadata)
+    if ["type", "value", "rollback"].contains(mode) {
+      precondition(metadata.contents[0].type == "public.tiff")
+      if mode != "type" { precondition(SHA256.hash(data: metadata.contents[0].value!) == hashes[item.persistentModelID]) }
+    } else if mode == "reader" {
+      autoreleasepool {
+        let readContext = ModelContext(container)
+        let stored = readContext.model(for: metadata.persistentModelID) as! HistoryItem
+        precondition(SHA256.hash(data: stored.contents[0].value!) == hashes[item.persistentModelID])
+      }
+    }
   }
 }
 items[0].pin = "p"

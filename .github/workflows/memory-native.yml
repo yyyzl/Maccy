@@ -40,7 +40,7 @@ jobs:
       - name: Measure main and short writer contexts
         run: |
           set -euo pipefail
-          for mode in main writer rollback; do
+          for mode in main writer type value reader rollback; do
             root=$(mktemp -d "$RUNNER_TEMP/capture-$mode.XXXXXX")
             "$RUNNER_TEMP/probe" "$mode" "$root/store.sqlite" > "$RUNNER_TEMP/capture-probe/$mode.log" 2>&1 &
             probe_pid=$!
