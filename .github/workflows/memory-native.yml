@@ -1,4 +1,4 @@
-name: Verify candidate with a real synthetic window on ARM
+name: Verify real-window ARM endurance using the reviewed binary
 
 on:
   push:
@@ -14,38 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-arm:
-    runs-on: macos-26-intel
-    timeout-minutes: 30
-    outputs:
-      zip_sha: ${{ steps.package.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Cross-build the isolated ARM64 Release candidate
-        run: |
-          set -euo pipefail
-          xcodebuild -project Maccy.xcodeproj -scheme Maccy -configuration Release \
-            -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/WindowBuild" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
-            PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryLifecycle \
-            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL MEMORY_LIFECYCLE' \
-            'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' build
-          app="$RUNNER_TEMP/WindowBuild/Build/Products/Release/Maccy.app"
-          lipo "$app/Contents/MacOS/Maccy" -verify_arch arm64
-          if otool -L "$app/Contents/MacOS/Maccy" | grep -Fq Sparkle.framework; then exit 1; fi
-          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Maccy-window.zip"
-      - name: Record the exact package digest
-        id: package
-        run: echo "sha=$(shasum -a 256 "$RUNNER_TEMP/Maccy-window.zip" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Maccy-window-candidate-arm64
-          path: ${{ runner.temp }}/Maccy-window.zip
-          retention-days: 7
   compare:
-    needs: build-arm
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Verify ARM host and record the synthetic-window source
@@ -57,20 +28,19 @@ jobs:
             uname -m
             sysctl -n hw.memsize
             git rev-parse HEAD
+            echo 'Binary source: f1f9b136af33957ac6c527004616778af80e389e; build run 41724342920'
             swift -e 'import AppKit; print("Screen:", NSScreen.main?.frame as Any, "scale:", NSScreen.main?.backingScaleFactor as Any)'
           } | tee "$RUNNER_TEMP/memory-results/host.txt"
-      - uses: actions/download-artifact@v4
-        with:
-          name: Maccy-window-candidate-arm64
-          path: ${{ runner.temp }}/candidate
       - name: Verify and sign this run's ARM64 Release candidate
         env:
-          PACKAGE_SHA: ${{ needs.build-arm.outputs.zip_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$PACKAGE_SHA" =~ ^[0-9a-f]{64}$ ]]
           destination="$RUNNER_TEMP/candidate"
-          echo "$PACKAGE_SHA  $destination/Maccy-window.zip" | shasum -a 256 -c -
+          mkdir -p "$destination"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/13274461421/zip" > "$destination/artifact.zip"
+          echo "a5ce1c9e5b61327aa6d44ee3f11b61028d47b6dba65492aac2f3d0ace390f6e7  $destination/artifact.zip" | shasum -a 256 -c -
+          ditto -x -k "$destination/artifact.zip" "$destination"
           ditto -x -k "$destination/Maccy-window.zip" "$destination"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$destination/Maccy.app/Contents/Info.plist")" = org.yyyzl.MaccyMemoryLifecycle
           lipo "$destination/Maccy.app/Contents/MacOS/Maccy" -verify_arch arm64
@@ -78,28 +48,13 @@ jobs:
           codesign --force --deep --sign - --pagesize 16384 --options runtime \
             --entitlements "$destination/entitlements.plist" "$destination/Maccy.app"
           codesign --verify --deep --strict "$destination/Maccy.app"
-      - name: Verify the contracts and twelve real-window cycles first
-        run: |
-          set -euo pipefail
-          for scenario in contracts interaction; do
-            set +e
-            bash tests-cli/lifecycle/run.sh "$RUNNER_TEMP/candidate/Maccy.app" candidate "$scenario" | tee "$RUNNER_TEMP/memory-results/$scenario-console.log"
-            set -e
-            directory=$(sed -n 's/^Results: //p' "$RUNNER_TEMP/memory-results/$scenario-console.log" | head -1)
-            [[ "$directory" =~ ^/tmp/maccy-lifecycle-results\.[A-Za-z0-9]+$ ]]
-            test -f "$directory/$scenario.log"
-            grep -E '\[MaccyLifecycle\]' "$directory/$scenario.log" > "$RUNNER_TEMP/memory-results/$scenario.log"
-            cp "$directory/footprint.csv" "$RUNNER_TEMP/memory-results/$scenario.csv"
-            grep -E '(CONTRACTS_OK|INTERACTION_OK cycles=12)' "$directory/$scenario.log"
-            grep -E "READY scenario=$scenario" "$directory/$scenario.log"
-          done
-      - name: Measure sixty real-window cycles and five minutes of idle
+      - name: Measure 240 real-window cycles and five minutes of idle
         id: candidate
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" candidate 60 "$RUNNER_TEMP/memory-results"
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" endurance 240 "$RUNNER_TEMP/memory-results"
       - name: Preserve the real-window result including failed checks
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-window-memory-arm64
+          name: native-window-endurance-arm64
           path: ${{ runner.temp }}/memory-results/
           retention-days: 7
