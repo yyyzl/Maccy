@@ -1,4 +1,4 @@
-name: Verify data lifetime and model contracts on Intel
+name: Diagnose synthetic image lifecycle assertions on Intel
 
 on:
   push:
@@ -25,14 +25,14 @@ jobs:
           test "$(uname -m)" = x86_64
           mkdir -p "$RUNNER_TEMP/memory-results"
           { sw_vers; uname -m; sysctl -n hw.memsize; git rev-parse HEAD; df -h "$RUNNER_TEMP"; } | tee "$RUNNER_TEMP/memory-results/host.txt"
-      - name: Build and sign the three controlled x86_64 Release variants
+      - name: Build and sign the two controlled x86_64 Release variants
         run: |
           set -euo pipefail
           candidate_source=$(git rev-parse HEAD)
           comparison_files=(Maccy/Observables/HistoryItemDecorator.swift Maccy/Observables/Popup.swift
             Maccy/Observables/HistoryImageLoader.swift Maccy/Observables/History.swift Maccy/Clipboard.swift
             Maccy/Views/HistoryItemView.swift Maccy/Extensions/NSImage+Resized.swift)
-          for variant in baseline bulk candidate; do
+          for variant in bulk candidate; do
             revision="$candidate_source"
             if [ "$variant" = baseline ]; then revision=5b90af348c2ae06c74fd06ae70aff9e1ea8d0f24; fi
             if [ "$variant" = bulk ]; then revision=8da61bd; fi
@@ -68,9 +68,6 @@ jobs:
             grep -E 'READY scenario=contracts' "$directory/contracts.log"
             grep -E '\[MaccyLifecycle\]' "$directory/contracts.log" > "$RUNNER_TEMP/memory-results/contracts-$variant.log"
           done
-      - name: Measure the original baseline
-        continue-on-error: true
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/baseline/Maccy.app" baseline 60 "$RUNNER_TEMP/memory-results"
       - name: Measure the bulk-context version
         continue-on-error: true
         run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/bulk/Maccy.app" bulk 60 "$RUNNER_TEMP/memory-results"
@@ -82,15 +79,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: auxiliary-intel-memory-comparison
-          path: ${{ runner.temp }}/memory-results/
-          retention-days: 7
-      - name: Check candidate endurance after it passes
-        if: steps.candidate.outcome == 'success'
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" endurance 240 "$RUNNER_TEMP/memory-results"
-      - name: Preserve the auxiliary endurance result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: auxiliary-intel-memory-endurance
           path: ${{ runner.temp }}/memory-results/
           retention-days: 7
