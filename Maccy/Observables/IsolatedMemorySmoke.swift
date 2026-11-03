@@ -289,6 +289,9 @@ enum IsolatedMemoryLifecycle {
         case "long":
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
+          var imageIDs = Set(History.shared.all.filter({ $0.title.contains("image") }).map { $0.item.persistentModelID })
+          var newImageIDs = Set<PersistentIdentifier>()
+          var previewedNewImages = Set<PersistentIdentifier>()
           for cycle in 1...cycleCount {
             autoreleasepool {
               Clipboard.shared.changeCount += 1
@@ -297,16 +300,19 @@ enum IsolatedMemoryLifecycle {
                 Clipboard.shared.changeCount += 1
                 let captured = image(1_000 + cycle)
                 captured.title = captured.generateTitle()
-                History.shared.add(captured)
+                let added = History.shared.add(captured)
+                imageIDs.insert(added.item.persistentModelID)
+                newImageIDs.insert(added.item.persistentModelID)
               }
               if cycle % 5 == 0 {
                 Clipboard.shared.changeCount += 1
                 let captured = image(0)
                 captured.title = captured.generateTitle()
-                History.shared.add(captured)
+                let added = History.shared.add(captured)
+                imageIDs.insert(added.item.persistentModelID)
               }
             }
-            let images = History.shared.all.filter({ $0.title.contains("image") })
+            let images = History.shared.all.filter({ imageIDs.contains($0.item.persistentModelID) })
             guard !images.isEmpty else { throw LifecycleError.invalidFixture }
             let item = images[(cycle - 1) % min(6, images.count)]
             History.shared.selectedItem = item
@@ -318,6 +324,9 @@ enum IsolatedMemoryLifecycle {
             try await Task.sleep(nanoseconds: 300_000_000)
             guard item.thumbnailImage != nil, item.previewImage != nil else {
               throw LifecycleError.invalidFixture
+            }
+            if newImageIDs.contains(item.item.persistentModelID) {
+              previewedNewImages.insert(item.item.persistentModelID)
             }
             try autoreleasepool {
               let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
@@ -345,6 +354,8 @@ enum IsolatedMemoryLifecycle {
                   History.shared.all.filter({ $0.thumbnailImage != nil }).count)
             try await Task.sleep(nanoseconds: 15_000_000_000)
           }
+          guard previewedNewImages.count >= 10 else { throw LifecycleError.invalidFixture }
+          NSLog("[MaccyLifecycle] NEW_IMAGES_PREVIEWED count=%d", previewedNewImages.count)
         default: break
         }
         try Storage.shared.context.save()
