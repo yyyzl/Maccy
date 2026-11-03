@@ -1,4 +1,4 @@
-name: Trace the largest retained synthetic allocations on ARM
+name: Compare capture context lifetime with synthetic SwiftData
 
 on:
   push:
@@ -7,55 +7,49 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: memory-native-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  compare:
+  probe:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Verify ARM host and record the diagnostic source
-        run: |
-          test "$(uname -m)" = arm64
-          mkdir -p "$RUNNER_TEMP/memory-results"
-          {
-            sw_vers
-            uname -m
-            sysctl -n hw.memsize
-            git rev-parse HEAD
-            echo 'Binary source: c345653d11d35505bcbbc82e6215459ab92e1bf0; build run 41728880719'
-            echo 'DIAGNOSTIC ONLY: accelerated 240 cycles, no-content heap and reference metadata, allocator comparison'
-            swift -e 'import AppKit; print("Screen:", NSScreen.main?.frame as Any, "scale:", NSScreen.main?.backingScaleFactor as Any)'
-          } | tee "$RUNNER_TEMP/memory-results/host.txt"
-      - name: Verify and sign this run's ARM64 Release candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Compile the standalone inverse-relationship probe
         run: |
           set -euo pipefail
-          destination="$RUNNER_TEMP/candidate"
-          mkdir -p "$destination"
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/13273669598/zip" > "$destination/artifact.zip"
-          echo "98e4816d4479923579b408ca0cbb5971b6540a6ed2a8feb897c7c653e73bad6f  $destination/artifact.zip" | shasum -a 256 -c -
-          ditto -x -k "$destination/artifact.zip" "$destination"
-          ditto -x -k "$destination/Maccy-retention.zip" "$destination"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$destination/Maccy.app/Contents/Info.plist")" = org.yyyzl.MaccyMemoryLifecycle
-          lipo "$destination/Maccy.app/Contents/MacOS/Maccy" -verify_arch arm64
-          sed 's/$(PRODUCT_BUNDLE_IDENTIFIER)/org.yyyzl.MaccyMemoryLifecycle/g' Maccy/Maccy.entitlements > "$destination/entitlements.plist"
-          /usr/libexec/PlistBuddy -c 'Add :com.apple.security.get-task-allow bool true' "$destination/entitlements.plist"
-          codesign --force --deep --sign - --pagesize 16384 --options runtime \
-            --entitlements "$destination/entitlements.plist" "$destination/Maccy.app"
-          codesign --verify --deep --strict "$destination/Maccy.app"
-      - name: Diagnose 240 accelerated mixed cycles and settled ownership
-        run: bash tests-cli/lifecycle/retention.sh "$RUNNER_TEMP/candidate/Maccy.app" "$RUNNER_TEMP/memory-results"
-      - name: Preserve synthetic metrics and no-content ownership evidence
+          test "$(uname -m)" = arm64
+          mkdir -p "$RUNNER_TEMP/capture-probe"
+          sw_vers > "$RUNNER_TEMP/capture-probe/host.txt"
+          xcrun swiftc -O tests-cli/swiftdata-capture/main.swift -o "$RUNNER_TEMP/probe"
+          echo '<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>' > "$RUNNER_TEMP/probe-entitlements.plist"
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/probe-entitlements.plist" "$RUNNER_TEMP/probe"
+      - name: Measure main and short writer contexts
+        run: |
+          set -euo pipefail
+          for mode in main writer; do
+            root=$(mktemp -d "$RUNNER_TEMP/capture-$mode.XXXXXX")
+            "$RUNNER_TEMP/probe" "$mode" "$root/store.sqlite" > "$RUNNER_TEMP/capture-probe/$mode.log" 2>&1 &
+            probe_pid=$!
+            for _ in {1..60}; do
+              if grep -q 'PROBE_READY' "$RUNNER_TEMP/capture-probe/$mode.log"; then break; fi
+              kill -0 "$probe_pid"
+              sleep 1
+            done
+            grep -q 'PROBE_READY' "$RUNNER_TEMP/capture-probe/$mode.log"
+            footprint "$probe_pid" > "$RUNNER_TEMP/capture-probe/$mode-footprint-0.txt"
+            sleep 15
+            footprint "$probe_pid" > "$RUNNER_TEMP/capture-probe/$mode-footprint-15.txt"
+            heap -s --noContent -H "$probe_pid" > "$RUNNER_TEMP/capture-probe/$mode-heap.txt" 2>&1 || true
+            kill -TERM "$probe_pid"
+            wait "$probe_pid" || true
+          done
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: retention-ownership-arm64
-          path: ${{ runner.temp }}/memory-results/
+          name: swiftdata-capture-probe-arm64
+          path: ${{ runner.temp }}/capture-probe/
           retention-days: 7
