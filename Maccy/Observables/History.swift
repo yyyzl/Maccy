@@ -92,7 +92,7 @@ class History { // swiftlint:disable:this type_body_length
     Task {
       for await _ in Defaults.updates(.showSpecialSymbols, initial: false) {
         for item in items {
-          await updateTitle(item: item, title: item.item.generateTitle())
+          await updateTitle(item: item)
         }
       }
     }
@@ -427,7 +427,8 @@ class History { // swiftlint:disable:this type_body_length
   }
 
   @MainActor
-  private func updateTitle(item: HistoryItemDecorator, title: String) {
+  private func updateTitle(item: HistoryItemDecorator) {
+    let title = item.item.generateTitle()
     item.title = title
     item.item.title = title
   }

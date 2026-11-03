@@ -93,5 +93,22 @@ try MainActor.assumeIsolated {
   let uninserted = HistoryRecord(title: "not-in-a-context")
   require(HistoryImageLoader.resizedImage(for: uninserted, maxSize: NSSize(width: 340, height: 200)) == nil,
           "uninserted item changed behavior")
+
+  let ocrBitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 800, pixelsHigh: 200,
+    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+  memset(ocrBitmap.bitmapData!, 255, ocrBitmap.bytesPerRow * ocrBitmap.pixelsHigh)
+  NSGraphicsContext.saveGraphicsState()
+  NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: ocrBitmap)
+  ("Memory 123" as NSString).draw(at: NSPoint(x: 30, y: 55), withAttributes: [
+    .font: NSFont.systemFont(ofSize: 80), .foregroundColor: NSColor.black
+  ])
+  NSGraphicsContext.restoreGraphicsState()
+  let pixels = Data(bytes: ocrBitmap.bitmapData!, count: ocrBitmap.bytesPerRow * ocrBitmap.pixelsHigh)
+  let recognized = HistoryImageLoader.recognizedText(in: ocrBitmap.cgImage!)
+  require(recognized?.contains("Memory") == true && recognized?.contains("123") == true,
+          "OCR no longer returns recognized text")
+  require(Data(bytes: ocrBitmap.bitmapData!, count: pixels.count) == pixels, "OCR changed source pixels")
   print("PASS: saved images use a temporary context; unsaved changes fall back; original bytes preserved")
+  print("PASS: OCR returns recognized text and preserves source pixels")
 }

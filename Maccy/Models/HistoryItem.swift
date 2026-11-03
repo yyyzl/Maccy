@@ -2,7 +2,6 @@ import AppKit
 import Defaults
 import Sauce
 import SwiftData
-import Vision
 
 @Model
 class HistoryItem {
@@ -77,10 +76,27 @@ class HistoryItem {
       }
   }
 
+  @MainActor
   func generateTitle() -> String {
     guard HistoryItemReader.read(self, { $0.image == nil }) else {
       Task {
-        self.performTextRecognition()
+        guard let image = HistoryItemReader.read(self, {
+          $0.image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }) else { return }
+        #if MEMORY_LIFECYCLE
+        precondition(Thread.isMainThread)
+        #endif
+        // 识别线程只持有图像，模型的读取和回写留在主 actor。
+        let title = await Task.detached {
+          #if MEMORY_LIFECYCLE
+          precondition(!Thread.isMainThread)
+          #endif
+          return HistoryImageLoader.recognizedText(in: image)
+        }.value
+        #if MEMORY_LIFECYCLE
+        precondition(Thread.isMainThread)
+        #endif
+        if let title, !self.isDeleted { self.title = title }
       }
       return ""
     }
@@ -205,33 +221,4 @@ class HistoryItem {
       .compactMap { $0.value }
   }
 
-  private func performTextRecognition() {
-    guard let cgImage = HistoryItemReader.read(self, {
-      $0.image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-    }) else {
-      return
-    }
-
-    let requestHandler = VNImageRequestHandler(cgImage: cgImage)
-    let request = VNRecognizeTextRequest(completionHandler: recognizeTextHandler)
-    request.recognitionLevel = .fast
-
-    do {
-      try requestHandler.perform([request])
-    } catch {
-      print("Unable to perform the request: \(error).")
-    }
-  }
-
-  private func recognizeTextHandler(request: VNRequest, error: Error?) {
-    guard let observations = request.results as? [VNRecognizedTextObservation] else {
-      return
-    }
-
-    let recognizedStrings = observations.compactMap { observation in
-      return observation.topCandidates(1).first?.string
-    }
-
-    self.title = recognizedStrings.joined(separator: "\n")
-  }
 }

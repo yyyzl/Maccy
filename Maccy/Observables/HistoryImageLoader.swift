@@ -1,5 +1,6 @@
 import AppKit
 import SwiftData
+import Vision
 
 // Keep persisted payload reads out of the long-lived editing context. Pending
 // changes to this item must still be read from their original context.
@@ -37,6 +38,21 @@ enum HistoryItemReader {
 }
 
 enum HistoryImageLoader {
+  static func recognizedText(in image: CGImage) -> String? {
+    // 后台任务的 Objective-C 临时对象在识别完成后释放，只返回文字。
+    autoreleasepool {
+      let handler = VNImageRequestHandler(cgImage: image)
+      let request = VNRecognizeTextRequest()
+      request.recognitionLevel = .fast
+      do {
+        try handler.perform([request])
+      } catch {
+        print("Unable to perform the request: \(error).")
+      }
+      return request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+    }
+  }
+
   @MainActor
   static func resizedImage(for item: HistoryItem, maxSize: NSSize) -> NSImage? {
     HistoryItemReader.read(item) { source in
