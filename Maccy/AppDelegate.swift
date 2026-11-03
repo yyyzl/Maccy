@@ -40,7 +40,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     AppState.shared.appDelegate = self
 
     Clipboard.shared.onNewCopy { History.shared.add($0) }
+    #if !MEMORY_LIFECYCLE
     Clipboard.shared.start()
+    #endif
 
     Task {
       for await _ in Defaults.updates(.clipboardCheckInterval, initial: false) {
