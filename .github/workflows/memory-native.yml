@@ -27,7 +27,7 @@ jobs:
             sw_vers
             uname -m
             sysctl -n hw.memsize
-            echo 'Build source: 8da61bdad4af9965b5612cafcc1f828300f5b024; run 41697286118'
+            echo 'Build source: 0dddf7f7f725f0c4738e76a06d7748019bf3dd7a; run 41707607281; bulk production source 8da61bd'
             swift -e 'import AppKit; print("Screen:", NSScreen.main?.frame as Any, "scale:", NSScreen.main?.backingScaleFactor as Any)'
           } | tee "$RUNNER_TEMP/memory-results/host.txt"
       - name: Download and verify the paired ARM64 Release builds
@@ -35,13 +35,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for variant in baseline candidate; do
-            if [ "$variant" = baseline ]; then
-              artifact_id=13261452973
-              digest=47f9b168e48ad554a3d31a424862b36c279c9df38afea5ae82b96d436d97b8d1
+          for variant in bulk candidate; do
+            if [ "$variant" = bulk ]; then
+              artifact_id=13266951047
+              digest=b3789d5be54052e90dcb71f70837b7196ad78b338bd529cf2c83e0c4380dbb40
             else
-              artifact_id=13260888681
-              digest=6e17edd081474603100be7377ede85049883f44f8cffb01ea1456562ef988440
+              artifact_id=13267840273
+              digest=ba0801e6eb5464f2d85dbd350e4ea42a8b31dd2e667549faf489fa04baa61bf5
             fi
             destination="$RUNNER_TEMP/$variant"
             mkdir -p "$destination"
@@ -54,9 +54,23 @@ jobs:
               --entitlements "$destination/entitlements.plist" "$destination/Maccy.app"
             codesign --verify --deep --strict "$destination/Maccy.app"
           done
-      - name: Measure baseline for 60 mixed cycles and five minutes of idle
+      - name: Verify the original metadata and format contracts
+        run: |
+          set -euo pipefail
+          for variant in bulk candidate; do
+            set +e
+            bash tests-cli/lifecycle/run.sh "$RUNNER_TEMP/$variant/Maccy.app" "$variant" contracts | tee "$RUNNER_TEMP/memory-results/contracts-$variant-console.log"
+            set -e
+            directory=$(sed -n 's/^Results: //p' "$RUNNER_TEMP/memory-results/contracts-$variant-console.log" | head -1)
+            [[ "$directory" =~ ^/tmp/maccy-lifecycle-results\.[A-Za-z0-9]+$ ]]
+            test -f "$directory/contracts.log"
+            grep -E 'CONTRACTS_OK' "$directory/contracts.log"
+            grep -E 'READY scenario=contracts' "$directory/contracts.log"
+            grep -E '\[MaccyLifecycle\]' "$directory/contracts.log" > "$RUNNER_TEMP/memory-results/contracts-$variant.log"
+          done
+      - name: Measure the bulk-context version for 60 mixed cycles and five minutes of idle
         continue-on-error: true
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/baseline/Maccy.app" baseline 60 "$RUNNER_TEMP/memory-results"
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/bulk/Maccy.app" bulk 60 "$RUNNER_TEMP/memory-results"
       - name: Measure candidate for the same workload and idle period
         id: candidate
         run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" candidate 60 "$RUNNER_TEMP/memory-results"
