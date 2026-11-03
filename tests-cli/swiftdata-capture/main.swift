@@ -26,7 +26,7 @@ final class HistoryItemContent {
 }
 
 let mode = CommandLine.arguments[1]
-precondition(["main", "writer"].contains(mode))
+precondition(["main", "writer", "rollback"].contains(mode))
 let config = ModelConfiguration(url: URL(fileURLWithPath: CommandLine.arguments[2]))
 let container = try ModelContainer(for: HistoryItem.self, configurations: config)
 let metadataContext = ModelContext(container)
@@ -38,7 +38,7 @@ for index in 0..<20 {
     bytes.withUnsafeMutableBytes { arc4random_buf($0.baseAddress!, $0.count) }
     let item = HistoryItem(contents: [HistoryItemContent(type: "public.tiff", value: bytes)])
     item.title = "Synthetic image \(index)"
-    let writeContext = mode == "main" ? metadataContext : ModelContext(container)
+    let writeContext = mode == "writer" ? ModelContext(container) : metadataContext
     writeContext.insert(item)
     try writeContext.save()
     hashes[item.persistentModelID] = SHA256.hash(data: bytes)
@@ -50,6 +50,12 @@ for index in 0..<20 {
 items[0].pin = "p"
 items[0].numberOfCopies = 7
 try metadataContext.save()
+if mode == "rollback" {
+  precondition(!metadataContext.hasChanges)
+  metadataContext.rollback()
+  precondition(items[0].pin == "p" && items[0].numberOfCopies == 7)
+  precondition(items[19].title == "Synthetic image 19")
+}
 // 全部原始字节经另一个短上下文核验，避免验证本身加载到常驻模型。
 for item in items {
   autoreleasepool {
