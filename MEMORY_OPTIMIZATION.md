@@ -28,7 +28,7 @@ An example run with 10 synthetic image payloads totaling 40 MiB measured approxi
 
 ## GitHub Actions
 
-`.github/workflows/memory-optimization.yml` builds on GitHub's `macos-26` runner and runs the isolated regression tests. Pushing a branch named `memory-optimization/...` triggers it; `workflow_dispatch` is also configured. Manual dispatch requires the workflow to exist on the repository's default branch. Only source and synthetic tests are involved; no clipboard database is included. The uploaded artifact is unsigned and experimental, not a replacement for the installed app. The workflow has not yet been run remotely.
+`.github/workflows/memory-optimization.yml` cross-compiles an ARM64 app on GitHub's `macos-26-intel` runner to avoid the capacity-constrained ARM64 queue. It verifies the executable's architecture and runs isolated regression tests natively on Intel, not on the target ARM64 app. Pushing a branch named `memory-optimization/...` triggers it; `workflow_dispatch` is also configured. Manual dispatch requires the workflow to exist on the repository's default branch. Only source and synthetic tests are involved; no clipboard database is included. The uploaded artifact is unsigned and experimental, not a replacement for the installed app. The ARM64 runner attempt timed out in the queue; the Intel workflow has not yet completed remotely.
 
 ## Known limitations
 

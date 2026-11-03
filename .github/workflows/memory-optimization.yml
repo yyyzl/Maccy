@@ -12,7 +12,9 @@ permissions:
 jobs:
   build:
     name: Build and run isolated tests
-    runs-on: macos-26
+    # ARM hosted runners can be capacity-constrained. Cross-compile on Intel;
+    # the component tests below run natively on that runner.
+    runs-on: macos-26-intel
     timeout-minutes: 30
     steps:
       - name: Check out source
@@ -30,9 +32,19 @@ jobs:
             -project Maccy.xcodeproj \
             -scheme Maccy \
             -configuration Debug \
+            -destination 'generic/platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/MaccyDerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Verify app supports Apple Silicon
+        run: |
+          lipo -verify_arch arm64 \
+            "$RUNNER_TEMP/MaccyDerivedData/Build/Products/Debug/Maccy.app/Contents/MacOS/Maccy"
+          lipo -archs \
+            "$RUNNER_TEMP/MaccyDerivedData/Build/Products/Debug/Maccy.app/Contents/MacOS/Maccy"
 
       - name: Run isolated regression tests
         run: |
