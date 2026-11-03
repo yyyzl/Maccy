@@ -1,0 +1,75 @@
+name: Build isolated Maccy Release trial
+
+on:
+  push:
+    branches:
+      - 'memory-optimization/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-trial:
+    name: Build ARM64 Release trial
+    runs-on: macos-26-intel
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show macOS and Xcode versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
+      - name: Build independent Release app without signing
+        run: |
+          xcodebuild \
+            -project Maccy.xcodeproj \
+            -scheme Maccy \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/MaccyTrialDerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryTrial \
+            MARKETING_VERSION=2.6.1 \
+            CURRENT_PROJECT_VERSION=60 \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Verify trial architecture and isolate updater
+        run: |
+          app="$RUNNER_TEMP/MaccyTrialDerivedData/Build/Products/Release/Maccy.app"
+          info="$app/Contents/Info.plist"
+          lipo "$app/Contents/MacOS/Maccy" -verify_arch arm64
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info")" = 'org.yyyzl.MaccyMemoryTrial'
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleName Maccy Memory Trial' "$info"
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Maccy Memory Trial' "$info"
+          /usr/libexec/PlistBuddy -c 'Set :SUFeedURL https://maccy-trial.invalid/appcast.xml' "$info"
+          /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool false' "$info"
+          plutil -lint "$info"
+
+      - name: Run isolated regression tests
+        run: |
+          sh tests-cli/clipboard-metadata/run.sh
+          sh tests-cli/image-resize/run.sh
+          sh tests-cli/image-loader/run.sh
+          sh tests-cli/decorator/run.sh
+          sh tests-cli/smoke-compile/run.sh
+
+      - name: Package unsigned trial
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/MaccyTrialDerivedData/Build/Products/Release/Maccy.app" \
+            "$RUNNER_TEMP/Maccy-Memory-Trial-unsigned.zip"
+
+      - name: Upload unsigned trial artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Maccy-Memory-Trial-unsigned
+          path: ${{ runner.temp }}/Maccy-Memory-Trial-unsigned.zip
+          if-no-files-found: error
+          retention-days: 7

@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ !contains(github.event.head_commit.message, '[trial-only]') }}
     name: Build and run isolated tests
     # ARM hosted runners can be capacity-constrained. Cross-compile on Intel;
     # the component tests below run natively on that runner.
