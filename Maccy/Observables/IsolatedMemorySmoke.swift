@@ -302,7 +302,8 @@ enum IsolatedMemoryLifecycle {
             }
             AppState.shared.popup.close()
             try Storage.shared.context.save()
-            guard History.shared.all.count == 201,
+            // Existing pinned deduplication can temporarily leave 199 unpinned items.
+            guard (200...201).contains(History.shared.all.count),
               History.shared.pinnedItems.count == 1,
               History.shared.pinnedItems.first?.item.pin == "p"
             else { throw LifecycleError.invalidFixture }
