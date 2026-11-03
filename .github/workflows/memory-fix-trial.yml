@@ -20,7 +20,7 @@ jobs:
             -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/Trial" \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
             PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryTrial \
-            MARKETING_VERSION=2.6.1 CURRENT_PROJECT_VERSION=62 \
+            MARKETING_VERSION=2.6.1 CURRENT_PROJECT_VERSION=63 \
             'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL' \
             'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' build
           app="$RUNNER_TEMP/Trial/Build/Products/Release/Maccy.app"
@@ -32,6 +32,8 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Maccy Memory Trial' "$info"
           /usr/libexec/PlistBuddy -c 'Set :SUFeedURL https://maccy-trial.invalid/appcast.xml' "$info"
           /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool false' "$info"
+          /usr/libexec/PlistBuddy -c 'Add :MemoryFixSourceRevision string ${{ github.sha }}' "$info"
+          if strings "$app/Contents/MacOS/Maccy" | grep -Fq '[MaccyLifecycle]'; then exit 1; fi
           plutil -lint "$info"
           ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Maccy-memory-fix-trial.zip"
       - uses: actions/upload-artifact@v4
