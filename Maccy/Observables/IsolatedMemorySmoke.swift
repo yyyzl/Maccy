@@ -1,5 +1,6 @@
 #if DEBUG || MEMORY_LIFECYCLE
 import AppKit
+import Darwin
 import Foundation
 import SwiftData
 
@@ -168,7 +169,7 @@ enum IsolatedMemoryLifecycle {
         String($0.dropFirst("--cycles=".count))
       } ?? "60"), [60, 240].contains(cycleCount),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "copy", "long"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "copy", "long", "retention"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -337,7 +338,7 @@ enum IsolatedMemoryLifecycle {
               }
             }
           }
-        case "long":
+        case "long", "retention":
           guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
@@ -419,7 +420,7 @@ enum IsolatedMemoryLifecycle {
             NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d text_capture_ms=%.1f", cycle,
                   History.shared.all.filter({ $0.previewImage != nil }).count,
                   History.shared.all.filter({ $0.thumbnailImage != nil }).count, captureMilliseconds)
-            try await Task.sleep(nanoseconds: 15_000_000_000)
+            try await Task.sleep(nanoseconds: scenario == "retention" ? 1_000_000_000 : 15_000_000_000)
           }
           guard previewedNewImages.count >= 10 else { throw LifecycleError.invalidFixture }
           NSLog("[MaccyLifecycle] NEW_IMAGES_PREVIEWED count=%d", previewedNewImages.count)
@@ -427,6 +428,13 @@ enum IsolatedMemoryLifecycle {
         }
         try Storage.shared.context.save()
         NSLog("[MaccyLifecycle] READY scenario=%@ items=%d", scenario, History.shared.all.count)
+        if scenario == "retention" {
+          Task { @MainActor in
+            try await Task.sleep(nanoseconds: 420_000_000_000)
+            let released = malloc_zone_pressure_relief(nil, 0)
+            NSLog("[MaccyLifecycle] ALLOCATOR_RELIEF bytes=%llu", UInt64(released))
+          }
+        }
       } catch {
         NSLog("[MaccyLifecycle] FAIL %@", String(describing: error)); exit(2)
       }
