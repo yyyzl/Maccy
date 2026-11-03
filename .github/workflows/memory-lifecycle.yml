@@ -1,0 +1,35 @@
+name: Build memory lifecycle comparison
+
+on:
+  push:
+    branches: ['memory-lifecycle/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build ARM64 Release with isolated operations
+        run: |
+          xcodebuild -project Maccy.xcodeproj -scheme Maccy -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/Lifecycle" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+            PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryLifecycle \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL MEMORY_LIFECYCLE' \
+            'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' build
+          app="$RUNNER_TEMP/Lifecycle/Build/Products/Release/Maccy.app"
+          lipo "$app/Contents/MacOS/Maccy" -verify_arch arm64
+          if otool -L "$app/Contents/MacOS/Maccy" | grep -Fq Sparkle.framework; then exit 1; fi
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Maccy-lifecycle.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Maccy-lifecycle-arm64
+          path: ${{ runner.temp }}/Maccy-lifecycle.zip
+          retention-days: 7

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || MEMORY_LIFECYCLE
 import AppKit
 import Foundation
 import SwiftData
@@ -12,6 +12,12 @@ enum IsolatedMemorySmoke {
 
   @MainActor
   static func runIfRequested() {
+    #if MEMORY_LIFECYCLE
+    if CommandLine.arguments.contains("--isolated-lifecycle") {
+      IsolatedMemoryLifecycle.run()
+      return
+    }
+    #endif
     let args = CommandLine.arguments
     let modes = ["--isolated-seed", "--isolated-load", "--isolated-paste"]
     guard let mode = modes.first(where: args.contains) else { return }
@@ -147,4 +153,135 @@ enum IsolatedMemorySmoke {
     case pasteMismatch
   }
 }
+
+// These operations exercise the real History and Clipboard implementations using
+// synthetic stores only. They must never run in either of the user's app bundles.
+#if MEMORY_LIFECYCLE
+enum IsolatedMemoryLifecycle {
+  @MainActor
+  static func run() {
+    let args = CommandLine.arguments
+    guard Bundle.main.bundleIdentifier == "org.yyyzl.MaccyMemoryLifecycle",
+      UserDefaults.standard.bool(forKey: "ignoreEvents"),
+      !UserDefaults.standard.bool(forKey: "clearOnQuit"),
+      let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "copy"].contains(scenario),
+      let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
+      !store.isEmpty, store.count < 80,
+      store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
+    else {
+      NSLog("[MaccyLifecycle] FAIL isolation flags"); exit(2)
+    }
+
+    Task { @MainActor in
+      do {
+        let directory = URL.applicationSupportDirectory.appending(path: "Maccy/Lifecycle/\(store)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        Storage.shared.container = try ModelContainer(
+          for: HistoryItem.self,
+          configurations: ModelConfiguration(url: directory.appending(path: "Storage.sqlite"))
+        )
+        if scenario == "seed" {
+          guard try Storage.shared.context.fetchCount(FetchDescriptor<HistoryItem>()) == 0 else {
+            throw LifecycleError.invalidFixture
+          }
+          for index in 0..<200 {
+            try autoreleasepool {
+              let context = ModelContext(Storage.shared.container)
+              let item = index % 5 == 4 ? text(index) : image(index)
+              context.insert(item)
+              try context.save()
+            }
+          }
+          NSLog("[MaccyLifecycle] SEED_OK items=200"); exit(0)
+        }
+
+        try await History.shared.load()
+        guard History.shared.all.count == 200,
+          History.shared.all.allSatisfy({ $0.item.title.hasPrefix("Lifecycle synthetic ") })
+        else { throw LifecycleError.invalidFixture }
+
+        switch scenario {
+        case "text":
+          for index in 200..<220 { History.shared.add(text(index)) }
+        case "image":
+          for index in 200..<220 {
+            autoreleasepool { History.shared.add(image(index)) }
+          }
+        case "duplicate":
+          for _ in 0..<20 {
+            let item = image(0)
+            History.shared.add(item)
+          }
+        case "preview":
+          for item in History.shared.all {
+            autoreleasepool {
+              _ = item.application
+              _ = item.text
+              item.sizeImages()
+              item.cleanupImages()
+            }
+          }
+        case "copy":
+          let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
+          defer { board.releaseGlobally() }
+          let clipboard = Clipboard(pasteboard: board, notifyOnCopy: false)
+          for decorator in History.shared.all.prefix(40) {
+            try autoreleasepool {
+              clipboard.copy(decorator.item)
+              let context = ModelContext(Storage.shared.container)
+              guard let stored = context.model(for: decorator.item.persistentModelID) as? HistoryItem else {
+                throw LifecycleError.originalMismatch
+              }
+              for content in stored.contents {
+                guard board.data(forType: .init(content.type)) == content.value else {
+                  throw LifecycleError.originalMismatch
+                }
+              }
+            }
+          }
+        default: break
+        }
+        try Storage.shared.context.save()
+        NSLog("[MaccyLifecycle] READY scenario=%@ items=%d", scenario, History.shared.all.count)
+      } catch {
+        NSLog("[MaccyLifecycle] FAIL %@", String(describing: error)); exit(2)
+      }
+    }
+  }
+
+  private static func text(_ index: Int) -> HistoryItem {
+    let item = HistoryItem(contents: [HistoryItemContent(type: "public.utf8-plain-text", value: Data("Lifecycle text \(index)".utf8))])
+    item.title = "Lifecycle synthetic text \(index)"
+    return item
+  }
+
+  private static func image(_ index: Int) -> HistoryItem {
+    let bitmap = NSBitmapImageRep(
+      bitmapDataPlanes: nil, pixelsWide: 512, pixelsHigh: 512,
+      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+      colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+    )!
+    var state = UInt64(index + 1)
+    let pixels = bitmap.bitmapData!
+    for offset in stride(from: 0, to: bitmap.bytesPerRow * bitmap.pixelsHigh, by: 4) {
+      state ^= state << 13; state ^= state >> 7; state ^= state << 17
+      pixels[offset] = UInt8(truncatingIfNeeded: state)
+      pixels[offset + 1] = UInt8(truncatingIfNeeded: state >> 8)
+      pixels[offset + 2] = UInt8(truncatingIfNeeded: state >> 16)
+      pixels[offset + 3] = 255
+    }
+    var contents = [HistoryItemContent(type: "public.tiff", value: bitmap.representation(using: .tiff, properties: [:])!)]
+    if index == 0 { contents.append(HistoryItemContent(type: "public.png", value: bitmap.representation(using: .png, properties: [:])!)) }
+    let item = HistoryItem(contents: contents)
+    item.title = "Lifecycle synthetic image \(index)"
+    return item
+  }
+
+  private enum LifecycleError: Error {
+    case invalidFixture
+    case originalMismatch
+  }
+}
+#endif
 #endif

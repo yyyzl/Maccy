@@ -103,7 +103,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       ContentView()
     }
 
-    #if DEBUG
+    #if DEBUG || MEMORY_LIFECYCLE
     IsolatedMemorySmoke.runIfRequested()
     #endif
   }
