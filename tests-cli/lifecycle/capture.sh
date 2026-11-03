@@ -6,7 +6,7 @@ app=$1
 label=$2
 cycles=$3
 output=$4
-[[ "$label" == baseline || "$label" == candidate || "$label" == endurance ]]
+[[ "$label" == baseline || "$label" == bulk || "$label" == candidate || "$label" == endurance ]]
 mkdir -p "$output"
 [[ ! -e "$output/$label-console.log" ]]
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)

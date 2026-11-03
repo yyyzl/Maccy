@@ -62,6 +62,7 @@ jobs:
             bash tests-cli/lifecycle/run.sh "$RUNNER_TEMP/$variant/Maccy.app" "$variant" contracts | tee "$RUNNER_TEMP/memory-results/contracts-$variant-console.log"
             set -e
             directory=$(sed -n 's/^Results: //p' "$RUNNER_TEMP/memory-results/contracts-$variant-console.log" | head -1)
+            [[ "$directory" =~ ^/tmp/maccy-lifecycle-results\.[A-Za-z0-9]+$ ]]
             test -f "$directory/contracts.log"
             rg 'CONTRACTS_OK' "$directory/contracts.log"
             rg 'READY scenario=contracts' "$directory/contracts.log"
