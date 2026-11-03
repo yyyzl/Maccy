@@ -1,0 +1,41 @@
+name: Build reviewable Maccy memory fix trial
+
+on:
+  push:
+    branches: ['trial-lifecycle/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ordinary ARM64 Release trial without the benchmark harness
+        run: |
+          xcodebuild -project Maccy.xcodeproj -scheme Maccy -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/Trial" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+            PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryTrial \
+            MARKETING_VERSION=2.6.1 CURRENT_PROJECT_VERSION=61 \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL' \
+            'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' build
+          app="$RUNNER_TEMP/Trial/Build/Products/Release/Maccy.app"
+          info="$app/Contents/Info.plist"
+          lipo "$app/Contents/MacOS/Maccy" -verify_arch arm64
+          if otool -L "$app/Contents/MacOS/Maccy" | grep -Fq Sparkle.framework; then exit 1; fi
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info")" = org.yyyzl.MaccyMemoryTrial
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleName Maccy Memory Trial' "$info"
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Maccy Memory Trial' "$info"
+          /usr/libexec/PlistBuddy -c 'Set :SUFeedURL https://maccy-trial.invalid/appcast.xml' "$info"
+          /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool false' "$info"
+          plutil -lint "$info"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Maccy-memory-fix-trial.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Maccy-memory-fix-trial-arm64
+          path: ${{ runner.temp }}/Maccy-memory-fix-trial.zip
+          retention-days: 7
