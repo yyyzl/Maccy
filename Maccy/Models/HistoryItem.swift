@@ -78,7 +78,7 @@ class HistoryItem {
   }
 
   func generateTitle() -> String {
-    guard image == nil else {
+    guard HistoryItemReader.read(self, { $0.image == nil }) else {
       Task {
         self.performTextRecognition()
       }
@@ -86,7 +86,7 @@ class HistoryItem {
     }
 
     // 1k characters is trade-off for performance
-    var title = previewableText.shortened(to: 1_000)
+    var title = HistoryItemReader.read(self) { $0.previewableText.shortened(to: 1_000) }
 
     if Defaults[.showSpecialSymbols] {
       if let range = title.range(of: "^ +", options: .regularExpression) {
@@ -206,7 +206,9 @@ class HistoryItem {
   }
 
   private func performTextRecognition() {
-    guard let cgImage = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    guard let cgImage = HistoryItemReader.read(self, {
+      $0.image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }) else {
       return
     }
 

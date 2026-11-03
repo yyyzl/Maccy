@@ -366,20 +366,24 @@ class History { // swiftlint:disable:this type_body_length
   @MainActor
   private func findSimilarItem(_ item: HistoryItem) -> HistoryItem? {
     let descriptor = FetchDescriptor<HistoryItem>()
-    func duplicateIDs(in context: ModelContext, isolateContents: Bool = false) -> [PersistentIdentifier]? {
+    func duplicateIDs(in context: ModelContext, comparing source: HistoryItem,
+                      isolateContents: Bool = false) -> [PersistentIdentifier]? {
       guard let records = try? context.fetch(descriptor) else { return nil }
       return records.filter { record in
-        guard isolateContents else { return record == item || record.supersedes(item) }
+        guard isolateContents else { return record == source || record.supersedes(source) }
         return autoreleasepool {
           let itemContext = ModelContext(context.container)
           let candidate = itemContext.model(for: record.persistentModelID) as? HistoryItem ?? record
-          return candidate == item || candidate.supersedes(item)
+          return candidate == source || candidate.supersedes(source)
         }
       }.map(\.persistentModelID)
     }
     let context = Storage.shared.context
-    let duplicates = context.hasChanges ? duplicateIDs(in: context) : autoreleasepool {
-      duplicateIDs(in: ModelContext(Storage.shared.container), isolateContents: true)
+    // 比较两端都会加载原始数据，新保存的条目也不能从常驻编辑上下文读取。
+    let duplicates = HistoryItemReader.read(item) { source in
+      context.hasChanges ? duplicateIDs(in: context, comparing: source) : autoreleasepool {
+        duplicateIDs(in: ModelContext(Storage.shared.container), comparing: source, isolateContents: true)
+      }
     }
     if let duplicates {
       if duplicates.count > 1 {
@@ -394,7 +398,7 @@ class History { // swiftlint:disable:this type_body_length
   }
 
   private func isModified(_ item: HistoryItem) -> HistoryItem? {
-    if let modified = item.modified, sessionLog.keys.contains(modified) {
+    if let modified = HistoryItemReader.read(item, { $0.modified }), sessionLog.keys.contains(modified) {
       return sessionLog[modified]
     }
 

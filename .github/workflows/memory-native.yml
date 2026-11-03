@@ -1,4 +1,4 @@
-name: Verify candidate with a real synthetic window on ARM
+name: Verify scoped comparison and OCR with real-window ARM endurance
 
 on:
   push:
@@ -21,6 +21,12 @@ jobs:
       zip_sha: ${{ steps.package.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check lifecycle helpers before the full app build
+        run: |
+          set -euo pipefail
+          for check in decorator image-loader image-resize clipboard-metadata smoke-compile trial-updater; do
+            bash "tests-cli/$check/run.sh"
+          done
       - name: Cross-build the isolated ARM64 Release candidate
         run: |
           set -euo pipefail
@@ -45,7 +51,7 @@ jobs:
   compare:
     needs: build-arm
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Verify ARM host and record the synthetic-window source
@@ -93,13 +99,13 @@ jobs:
             grep -E '(CONTRACTS_OK|INTERACTION_OK cycles=12)' "$directory/$scenario.log"
             grep -E "READY scenario=$scenario" "$directory/$scenario.log"
           done
-      - name: Measure sixty real-window cycles and five minutes of idle
+      - name: Measure 240 real-window cycles and five minutes of idle
         id: candidate
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" candidate 60 "$RUNNER_TEMP/memory-results"
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" endurance 240 "$RUNNER_TEMP/memory-results"
       - name: Preserve the real-window result including failed checks
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-window-memory-arm64
+          name: scoped-source-window-endurance-arm64
           path: ${{ runner.temp }}/memory-results/
           retention-days: 7
