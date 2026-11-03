@@ -165,7 +165,7 @@ enum IsolatedMemoryLifecycle {
       UserDefaults.standard.bool(forKey: "ignoreEvents"),
       !UserDefaults.standard.bool(forKey: "clearOnQuit"),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "copy", "long"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "copy", "long"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -232,6 +232,7 @@ enum IsolatedMemoryLifecycle {
           // Closing the popup must release these caches without a row disappearing.
           for item in History.shared.all.filter({ $0.title.contains("image") }).prefix(6) {
             item.ensureThumbnailImage()
+            item.showPreview = true
             item.ensurePreviewImage()
           }
           try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -239,6 +240,31 @@ enum IsolatedMemoryLifecycle {
           NSLog("[MaccyLifecycle] CLOSED previews=%d thumbnails=%d",
                 History.shared.all.filter({ $0.previewImage != nil }).count,
                 History.shared.all.filter({ $0.thumbnailImage != nil }).count)
+        case "visibility":
+          guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
+          panel.contentView?.layoutSubtreeIfNeeded()
+          try await Task.sleep(nanoseconds: 500_000_000)
+          for cycle in 1...3 {
+            // Simulate our custom scene phase without showing a window or taking focus.
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard !panel.isVisible, !panel.isKeyWindow,
+              History.shared.all.contains(where: { $0.thumbnailImage != nil }),
+              let selection = AppState.shared.selection
+            else { throw LifecycleError.invalidFixture }
+            AppState.shared.highlightNext()
+            guard AppState.shared.selection != selection else { throw LifecycleError.invalidFixture }
+            AppState.shared.highlightPrevious()
+            guard AppState.shared.selection == selection else { throw LifecycleError.invalidFixture }
+            AppState.shared.popup.close()
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard History.shared.all.allSatisfy({ $0.thumbnailImage == nil && $0.previewImage == nil }) else {
+              throw LifecycleError.invalidFixture
+            }
+            NSLog("[MaccyLifecycle] VISIBILITY_OK cycle=%d simulated_focus=YES", cycle)
+          }
         case "copy":
           let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
           defer { board.releaseGlobally() }
@@ -284,8 +310,12 @@ enum IsolatedMemoryLifecycle {
             _ = item.application
             _ = item.text
             item.ensureThumbnailImage()
+            item.showPreview = true
             item.ensurePreviewImage()
             try await Task.sleep(nanoseconds: 300_000_000)
+            guard item.thumbnailImage != nil, item.previewImage != nil else {
+              throw LifecycleError.invalidFixture
+            }
             try autoreleasepool {
               let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
               defer { board.releaseGlobally() }

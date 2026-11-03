@@ -37,6 +37,16 @@ struct DecoratorTest {
     require(discarded == nil, "observation callbacks retain a discarded decorator")
     print("PASS: observation callbacks release a discarded decorator")
 
+    HistoryItemDecorator.previewThrottler.minimumDelay = 0.1
+    weak var discardedSelection: HistoryItemDecorator?
+    autoreleasepool {
+      let temporary = HistoryItemDecorator(record, universalClipboardHint: false)
+      temporary.isSelected = true
+      discardedSelection = temporary
+    }
+    require(discardedSelection == nil, "delayed preview retains a discarded decorator")
+    HistoryItemDecorator.previewThrottler.cancel()
+
     let decorator = HistoryItemDecorator(record, universalClipboardHint: false)
     require(record.clipboardReads == 0, "hint caused original-content lookup")
     record.title += "/edited"
@@ -58,18 +68,26 @@ struct DecoratorTest {
     }
     require(decorator.thumbnailImage != nil, "thumbnail did not regenerate after cleanup")
     decorator.ensurePreviewImage()
+    try await Task.sleep(nanoseconds: 30_000_000)
+    require(decorator.previewImage == nil && decorator.previewImageGenerationTask == nil,
+            "a dismissed preview can still start image generation")
+    decorator.showPreview = true
+    decorator.ensurePreviewImage()
     for _ in 0..<30 where decorator.previewImage == nil {
       try await Task.sleep(nanoseconds: 10_000_000)
     }
     require(decorator.previewImage != nil, "preview did not generate")
-    decorator.showPreview = true
     decorator.showPreview = false
     require(decorator.previewImage == nil && decorator.previewImageGenerationTask == nil,
             "dismissing the preview retains its bitmap or task")
+    decorator.showPreview = true
     decorator.ensurePreviewImage()
     decorator.showPreview = false
     try await Task.sleep(nanoseconds: 30_000_000)
     require(decorator.previewImage == nil, "a cancelled preview regenerated after dismissal")
+    decorator.ensurePreviewImage()
+    try await Task.sleep(nanoseconds: 30_000_000)
+    require(decorator.previewImage == nil, "a late callback regenerated a dismissed preview")
     decorator.cleanupImages()
     print("PASS: decorator generates, releases and regenerates an isolated thumbnail")
   }

@@ -50,8 +50,9 @@ def amount(value):
     number, unit = value.split()
     return float(number) * {'B': 1/1048576, 'KB': 1/1024, 'MB': 1, 'GB': 1024}[unit]
 rows = list(csv.DictReader(open(sys.argv[1])))
-cycles = re.findall(r'CYCLE_READY cycle=(\d+)', open(sys.argv[2]).read())
-assert cycles == [str(i) for i in range(1,61)], 'Mixed operations did not all complete'
+cycles = re.findall(r'CYCLE_READY cycle=(\d+) previews=(\d+) thumbnails=(\d+)', open(sys.argv[2]).read())
+assert [row[0] for row in cycles] == [str(i) for i in range(1,61)], 'Mixed operations did not all complete'
+assert all(row[1:] == ('0', '0') for row in cycles), 'Closed popup retained image caches'
 mixed = [amount(row['physical_footprint']) for row in rows if row['phase'] == 'mixed']
 assert len(mixed) >= 55 and int(rows[-1]['elapsed_seconds']) >= 900, 'Insufficient continuous coverage'
 idle = amount(rows[-1]['physical_footprint'])

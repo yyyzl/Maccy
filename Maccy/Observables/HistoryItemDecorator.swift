@@ -23,7 +23,8 @@ class HistoryItemDecorator: Identifiable, Hashable {
   var isSelected: Bool = false {
     didSet {
       if isSelected {
-        Self.previewThrottler.throttle {
+        Self.previewThrottler.throttle { [weak self] in
+          guard let self, self.isSelected else { return }
           Self.previewThrottler.minimumDelay = 0.2
           self.showPreview = true
         }
@@ -101,15 +102,15 @@ class HistoryItemDecorator: Identifiable, Hashable {
 
   @MainActor
   func ensurePreviewImage() {
-    guard previewImage == nil else {
+    guard showPreview, previewImage == nil else {
       return
     }
     guard previewImageGenerationTask == nil else {
       return
     }
     previewImageGenerationTask = Task { [weak self] in
-      guard !Task.isCancelled else { return }
-      self?.generatePreviewImage()
+      guard let self, !Task.isCancelled, self.showPreview else { return }
+      self.generatePreviewImage()
     }
   }
 

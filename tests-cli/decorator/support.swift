@@ -9,12 +9,6 @@ class ApplicationImage {
 struct KeyShortcut {
   static func create(character: String) -> [KeyShortcut] { [] }
 }
-class Throttler {
-  var minimumDelay: Double
-  init(minimumDelay: Double) { self.minimumDelay = minimumDelay }
-  func throttle(_ work: @escaping () -> Void) { work() }
-  func cancel() {}
-}
 extension NSScreen {
   static var forPopup: NSScreen? { NSScreen.main }
 }

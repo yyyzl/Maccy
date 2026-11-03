@@ -13,6 +13,7 @@ swiftc -parse-as-library -I "$build_dir" -L "$build_dir" -lDefaults -lSauce \
   -Xlinker -rpath -Xlinker "$build_dir" \
   "$root/tests-cli/swiftdata-load/models.swift" \
   "$root/tests-cli/decorator/support.swift" \
+  "$root/Maccy/Throttler.swift" \
   "$root/Maccy/ApplicationImageCache.swift" \
   "$root/Maccy/Extensions/NSImage+Resized.swift" \
   "$root/Maccy/Extensions/String+Shortened.swift" \
