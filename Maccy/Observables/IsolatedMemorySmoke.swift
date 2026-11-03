@@ -169,7 +169,7 @@ enum IsolatedMemoryLifecycle {
         String($0.dropFirst("--cycles=".count))
       } ?? "60"), [60, 240].contains(cycleCount),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "interaction", "copy", "long"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "interaction", "copy", "long", "background"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -338,6 +338,61 @@ enum IsolatedMemoryLifecycle {
               }
             }
           }
+        case "background":
+          guard let panel = AppState.shared.appDelegate?.panel, !panel.isVisible, !panel.isKeyWindow
+          else { throw LifecycleError.invalidFixture }
+          NSLog("[MaccyLifecycle] BACKGROUND_MODE visible=NO key=NO")
+          try await Task.sleep(nanoseconds: 20_000_000_000)
+          @MainActor
+          func captureImage(_ index: Int) throws {
+            try autoreleasepool {
+              Clipboard.shared.changeCount += 1
+              let captured = image(index)
+              let expected = Dictionary(uniqueKeysWithValues: captured.contents.map { ($0.type, $0.value!) })
+              captured.title = captured.generateTitle()
+              let added = History.shared.add(captured)
+              try Storage.shared.context.save()
+              let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
+              defer { board.releaseGlobally() }
+              Clipboard(pasteboard: board, notifyOnCopy: false).copy(added.item)
+              let context = ModelContext(Storage.shared.container)
+              guard let stored = context.model(for: added.item.persistentModelID) as? HistoryItem,
+                Set(stored.contents.map(\.type)) == Set(expected.keys)
+              else { throw LifecycleError.originalMismatch }
+              for content in stored.contents {
+                guard content.value == expected[content.type],
+                  board.data(forType: .init(content.type)) == expected[content.type]
+                else { throw LifecycleError.originalMismatch }
+              }
+            }
+          }
+          var validatedNewImages = 0
+          for cycle in 1...cycleCount {
+            let started = Date.timeIntervalSinceReferenceDate
+            autoreleasepool {
+              Clipboard.shared.changeCount += 1
+              History.shared.add(text(1_000 + cycle))
+            }
+            let captureMilliseconds = (Date.timeIntervalSinceReferenceDate - started) * 1000
+            if cycle % 3 == 0 {
+              try captureImage(1_000 + cycle)
+              validatedNewImages += 1
+            }
+            if cycle % 5 == 0 { try captureImage(0) }
+            try Storage.shared.context.save()
+            guard !panel.isVisible, !panel.isKeyWindow,
+              (200...201).contains(History.shared.all.count), History.shared.pinnedItems.count == 1,
+              History.shared.pinnedItems.first?.item.pin == "p"
+            else { throw LifecycleError.invalidFixture }
+            NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d text_capture_ms=%.1f", cycle,
+              History.shared.all.filter({ $0.previewImage != nil }).count,
+              History.shared.all.filter({ $0.thumbnailImage != nil }).count, captureMilliseconds)
+            try await Task.sleep(nanoseconds: 15_000_000_000)
+          }
+          guard !panel.isVisible, !panel.isKeyWindow,
+            History.shared.all.allSatisfy({ $0.previewImage == nil && $0.thumbnailImage == nil })
+          else { throw LifecycleError.invalidFixture }
+          NSLog("[MaccyLifecycle] BACKGROUND_OK cycles=%d validated_new_images=%d", cycleCount, validatedNewImages)
         case "long", "interaction":
           guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
           // 仅远端一次性 CI 桌面显示合成窗口，本机始终保持隐藏。

@@ -6,12 +6,14 @@ app=$1
 label=$2
 cycles=$3
 output=$4
-[[ "$label" == baseline || "$label" == bulk || "$label" == candidate || "$label" == endurance ]]
+[[ "$label" == baseline || "$label" == bulk || "$label" == candidate || "$label" == endurance || "$label" == background ]]
+scenario=long
+if [[ "$label" == background ]]; then scenario=background; fi
 mkdir -p "$output"
 [[ ! -e "$output/$label-console.log" ]]
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 set +e
-bash "$root/tests-cli/lifecycle/long.sh" "$app" "$label" "$cycles" | tee "$output/$label-console.log"
+bash "$root/tests-cli/lifecycle/long.sh" "$app" "$label" "$cycles" "$scenario" | tee "$output/$label-console.log"
 statuses=("${PIPESTATUS[@]}")
 set -e
 [[ ${statuses[1]} == 0 ]]

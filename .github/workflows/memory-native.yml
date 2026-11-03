@@ -1,4 +1,4 @@
-name: Verify scoped comparison and OCR with real-window ARM endurance
+name: Verify continuous resident capture without opening the popup on ARM
 
 on:
   push:
@@ -99,13 +99,13 @@ jobs:
             grep -E '(CONTRACTS_OK|INTERACTION_OK cycles=12)' "$directory/$scenario.log"
             grep -E "READY scenario=$scenario" "$directory/$scenario.log"
           done
-      - name: Measure 240 real-window cycles and five minutes of idle
+      - name: Measure 240 background capture cycles and five minutes of idle
         id: candidate
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" endurance 240 "$RUNNER_TEMP/memory-results"
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" background 240 "$RUNNER_TEMP/memory-results"
       - name: Preserve the real-window result including failed checks
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scoped-source-window-endurance-arm64
+          name: background-resident-endurance-arm64
           path: ${{ runner.temp }}/memory-results/
           retention-days: 7
