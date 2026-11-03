@@ -1,4 +1,4 @@
-name: Diagnose synthetic image lifecycle assertions on Intel
+name: Verify settled synthetic window interaction on Intel
 
 on:
   push:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   compare:
     runs-on: macos-26-intel
-    timeout-minutes: 180
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,7 +25,7 @@ jobs:
           test "$(uname -m)" = x86_64
           mkdir -p "$RUNNER_TEMP/memory-results"
           { sw_vers; uname -m; sysctl -n hw.memsize; git rev-parse HEAD; df -h "$RUNNER_TEMP"; } | tee "$RUNNER_TEMP/memory-results/host.txt"
-      - name: Build and sign the two controlled x86_64 Release variants
+      - name: Build and sign the isolated x86_64 Release candidate
         run: |
           set -euo pipefail
           candidate_source=$(git rev-parse HEAD)
@@ -70,9 +70,6 @@ jobs:
             grep -E '\[MaccyLifecycle\]' "$directory/$scenario.log" > "$RUNNER_TEMP/memory-results/$scenario-$variant.log"
             done
           done
-      - name: Measure the per-item-context candidate
-        id: candidate
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" candidate 60 "$RUNNER_TEMP/memory-results"
       - name: Preserve the auxiliary comparison, including failed budgets
         if: always()
         uses: actions/upload-artifact@v4
