@@ -164,6 +164,9 @@ enum IsolatedMemoryLifecycle {
     guard Bundle.main.bundleIdentifier == "org.yyyzl.MaccyMemoryLifecycle",
       UserDefaults.standard.bool(forKey: "ignoreEvents"),
       !UserDefaults.standard.bool(forKey: "clearOnQuit"),
+      let cycleCount = Int(args.first(where: { $0.hasPrefix("--cycles=") }).map {
+        String($0.dropFirst("--cycles=".count))
+      } ?? "60"), [60, 240].contains(cycleCount),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
       ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "copy", "long"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
@@ -286,7 +289,7 @@ enum IsolatedMemoryLifecycle {
         case "long":
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
-          for cycle in 1...60 {
+          for cycle in 1...cycleCount {
             autoreleasepool {
               Clipboard.shared.changeCount += 1
               History.shared.add(text(1_000 + cycle))

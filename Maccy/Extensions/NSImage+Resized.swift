@@ -16,11 +16,13 @@ extension NSImage {
     }
 
     // Draw into a standalone bitmap: a drawing handler would retain the original image.
-    let scale = NSScreen.main?.backingScaleFactor ?? 2
+    guard let source = cgImage(forProposedRect: nil, context: nil, hints: nil) else { return self }
+    let scale = min(NSScreen.main?.backingScaleFactor ?? 2,
+                    CGFloat(source.width) / newSize.width, CGFloat(source.height) / newSize.height)
     guard let bitmap = NSBitmapImageRep(
       bitmapDataPlanes: nil,
-      pixelsWide: max(1, Int(ceil(newSize.width * scale))),
-      pixelsHigh: max(1, Int(ceil(newSize.height * scale))),
+      pixelsWide: min(source.width, max(1, Int(ceil(newSize.width * scale)))),
+      pixelsHigh: min(source.height, max(1, Int(ceil(newSize.height * scale)))),
       bitsPerSample: 8,
       samplesPerPixel: 4,
       hasAlpha: true,
@@ -28,8 +30,7 @@ extension NSImage {
       colorSpaceName: .deviceRGB,
       bytesPerRow: 0,
       bitsPerPixel: 0
-    ), let context = NSGraphicsContext(bitmapImageRep: bitmap),
-      let source = cgImage(forProposedRect: nil, context: nil, hints: nil)
+    ), let context = NSGraphicsContext(bitmapImageRep: bitmap)
     else {
       return self
     }
