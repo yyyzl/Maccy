@@ -168,7 +168,7 @@ enum IsolatedMemoryLifecycle {
         String($0.dropFirst("--cycles=".count))
       } ?? "60"), [60, 240].contains(cycleCount),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "copy", "long"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "copy", "long"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -268,6 +268,52 @@ enum IsolatedMemoryLifecycle {
             }
             NSLog("[MaccyLifecycle] VISIBILITY_OK cycle=%d simulated_focus=YES", cycle)
           }
+        case "contracts":
+          func add(_ item: HistoryItem) -> HistoryItemDecorator {
+            Clipboard.shared.changeCount += 1
+            return History.shared.add(item)
+          }
+          let stringType = NSPasteboard.PasteboardType.string.rawValue
+          let modifiedType = NSPasteboard.PasteboardType.modified.rawValue
+          let plain = Data("Dedup contract original".utf8)
+          let first = HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain)])
+          first.title = "Contract original title"
+          first.pin = "b"
+          first.application = "synthetic.original"
+          first.firstCopiedAt = Date(timeIntervalSince1970: 1000)
+          first.numberOfCopies = 4
+          add(first)
+          let duplicate = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain)]))
+          guard duplicate.item.pin == "b", duplicate.item.title == "Contract original title",
+            duplicate.item.application == "synthetic.original", duplicate.item.numberOfCopies == 5,
+            duplicate.item.firstCopiedAt == Date(timeIntervalSince1970: 1000)
+          else { throw LifecycleError.originalMismatch }
+          let transient = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: plain),
+            HistoryItemContent(type: modifiedType, value: Data("unmapped".utf8))]))
+          guard transient.item.numberOfCopies == 6, transient.item.pin == "b",
+            transient.item.contents.count == 1, transient.item.contents.first?.value == plain
+          else { throw LifecycleError.originalMismatch }
+
+          let richText = Data("Dedup contract rich".utf8)
+          let html = Data("<b>Dedup contract rich</b>".utf8)
+          add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: richText),
+            HistoryItemContent(type: NSPasteboard.PasteboardType.html.rawValue, value: html)]))
+          let superseded = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: richText)]))
+          guard superseded.item.contents.count == 2,
+            superseded.item.contents.contains(where: { $0.type == NSPasteboard.PasteboardType.html.rawValue && $0.value == html })
+          else { throw LifecycleError.originalMismatch }
+
+          let original = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: Data("Modify original".utf8))]))
+          let originalDate = original.item.firstCopiedAt
+          let originalChange = Clipboard.shared.changeCount
+          let edited = Data("Modify edited".utf8)
+          let modified = add(HistoryItem(contents: [HistoryItemContent(type: stringType, value: edited),
+            HistoryItemContent(type: modifiedType, value: Data(String(originalChange).utf8))]))
+          guard modified.item.firstCopiedAt == originalDate, modified.item.numberOfCopies == 2,
+            modified.item.contents.contains(where: { $0.type == stringType && $0.value == edited }),
+            modified.item.contents.contains(where: { $0.type == modifiedType })
+          else { throw LifecycleError.originalMismatch }
+          NSLog("[MaccyLifecycle] CONTRACTS_OK pin=YES metadata=YES transient=YES supersedes=YES modified=YES")
         case "copy":
           let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
           defer { board.releaseGlobally() }
@@ -294,9 +340,12 @@ enum IsolatedMemoryLifecycle {
           var newImageIDs = Set<PersistentIdentifier>()
           var previewedNewImages = Set<PersistentIdentifier>()
           for cycle in 1...cycleCount {
+            var captureMilliseconds = 0.0
             autoreleasepool {
               Clipboard.shared.changeCount += 1
+              let textStarted = Date.timeIntervalSinceReferenceDate
               History.shared.add(text(1_000 + cycle))
+              captureMilliseconds = (Date.timeIntervalSinceReferenceDate - textStarted) * 1000
               if cycle % 3 == 0 {
                 Clipboard.shared.changeCount += 1
                 let captured = image(1_000 + cycle)
@@ -356,9 +405,9 @@ enum IsolatedMemoryLifecycle {
               History.shared.pinnedItems.count == 1,
               History.shared.pinnedItems.first?.item.pin == "p"
             else { throw LifecycleError.invalidFixture }
-            NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d", cycle,
+            NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d text_capture_ms=%.1f", cycle,
                   History.shared.all.filter({ $0.previewImage != nil }).count,
-                  History.shared.all.filter({ $0.thumbnailImage != nil }).count)
+                  History.shared.all.filter({ $0.thumbnailImage != nil }).count, captureMilliseconds)
             try await Task.sleep(nanoseconds: 15_000_000_000)
           }
           guard previewedNewImages.count >= 10 else { throw LifecycleError.invalidFixture }

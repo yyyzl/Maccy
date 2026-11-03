@@ -5,7 +5,7 @@ umask 077
 app=$1
 label=${2:-candidate}
 selected=${3:-all}
-[[ "$selected" == all || "$selected" == browse || "$selected" == visibility ]]
+[[ "$selected" == all || "$selected" == browse || "$selected" == visibility || "$selected" == contracts ]]
 test_id=org.yyyzl.MaccyMemoryLifecycle
 [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist") == "$test_id" ]]
 codesign --verify --deep --strict "$app"
@@ -43,7 +43,7 @@ wait_marker "$results/seed.log" SEED_OK
 wait "$active_pid"
 active_pid=''
 printf 'variant,scenario,seconds_after_ready,physical_footprint,peak_footprint\n' > "$results/footprint.csv"
-for scenario in idle text duplicate image preview browse visibility copy; do
+for scenario in idle text duplicate image preview browse visibility contracts copy; do
   if [[ "$selected" != all && "$selected" != "$scenario" ]]; then continue; fi
   store="${run_id}-${scenario}"
   python3 - "$store_root/$seed_store/Storage.sqlite" "$store_root/$store/Storage.sqlite" <<'PY'
@@ -72,7 +72,7 @@ def mib(value):
     number, unit = value.split()
     return float(number) * {'B': 1/1048576, 'KB': 1/1024, 'MB': 1, 'GB': 1024}[unit]
 rows = list(csv.DictReader(open(sys.argv[1])))
-assert len(rows) in (3, 24) and all(row['physical_footprint'] for row in rows)
+assert len(rows) in (3, 27) and all(row['physical_footprint'] for row in rows)
 failed = [row for row in rows if row['seconds_after_ready'] == '15' and mib(row['physical_footprint']) >= 100]
 for row in failed:
     print('FAIL steady-state budget:', row['scenario'], row['physical_footprint'])

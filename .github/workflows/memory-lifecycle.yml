@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [baseline, observer, candidate]
+        variant: [baseline, bulk, candidate]
     runs-on: macos-26-intel
     timeout-minutes: 30
     steps:
@@ -28,13 +28,12 @@ jobs:
       - name: Select production files for the controlled comparison
         if: matrix.variant != 'candidate'
         run: |
-          git restore --source=5b90af348c2ae06c74fd06ae70aff9e1ea8d0f24 -- \
+          comparison_source=5b90af348c2ae06c74fd06ae70aff9e1ea8d0f24
+          if [ '${{ matrix.variant }}' = bulk ]; then comparison_source=8da61bd; fi
+          git restore --source="$comparison_source" -- \
             Maccy/Observables/HistoryItemDecorator.swift Maccy/Observables/Popup.swift \
             Maccy/Observables/HistoryImageLoader.swift Maccy/Observables/History.swift Maccy/Clipboard.swift \
             Maccy/Views/HistoryItemView.swift Maccy/Extensions/NSImage+Resized.swift
-          if [ '${{ matrix.variant }}' = observer ]; then
-            git restore --source=308e092 -- Maccy/Observables/HistoryItemDecorator.swift
-          fi
       - name: Build ARM64 Release with isolated operations
         run: |
           xcodebuild -project Maccy.xcodeproj -scheme Maccy -configuration Release \
