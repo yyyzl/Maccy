@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Show macOS and Xcode versions
         run: |
@@ -33,6 +35,7 @@ jobs:
             -scheme Maccy \
             -configuration Debug \
             -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/MaccySourcePackages" \
             -derivedDataPath "$RUNNER_TEMP/MaccyDerivedData" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=NO \
@@ -51,17 +54,48 @@ jobs:
           sh tests-cli/image-resize/run.sh
           sh tests-cli/image-loader/run.sh
           sh tests-cli/decorator/run.sh
+          sh tests-cli/smoke-compile/run.sh
 
-      - name: Package unsigned build for inspection
+      - name: Build baseline with the same isolated test harness
+        run: |
+          base=dec66013b1a6865608949845e8eabd85cff3fc29
+          for file in \
+            Maccy/ApplicationImageCache.swift \
+            Maccy/Extensions/NSImage+Resized.swift \
+            Maccy/Observables/History.swift \
+            Maccy/Observables/HistoryItemDecorator.swift \
+            Maccy/Views/HistoryItemView.swift; do
+            git show "$base:$file" > "$file"
+          done
+          xcodebuild \
+            -project Maccy.xcodeproj \
+            -scheme Maccy \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/MaccySourcePackages" \
+            -derivedDataPath "$RUNNER_TEMP/MaccyBaselineDerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          app="$RUNNER_TEMP/MaccyBaselineDerivedData/Build/Products/Debug/Maccy.app/Contents/MacOS/Maccy"
+          lipo "$app" -verify_arch arm64
+
+      - name: Package unsigned builds for isolated comparison
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
             "$RUNNER_TEMP/MaccyDerivedData/Build/Products/Debug/Maccy.app" \
-            "$RUNNER_TEMP/Maccy-unsigned-experimental.zip"
+            "$RUNNER_TEMP/Maccy-optimized-unsigned.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/MaccyBaselineDerivedData/Build/Products/Debug/Maccy.app" \
+            "$RUNNER_TEMP/Maccy-baseline-unsigned.zip"
 
-      - name: Upload unsigned experimental artifact
+      - name: Upload unsigned experimental artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Maccy-unsigned-experimental
-          path: ${{ runner.temp }}/Maccy-unsigned-experimental.zip
+          name: Maccy-isolated-comparison-unsigned
+          path: |
+            ${{ runner.temp }}/Maccy-optimized-unsigned.zip
+            ${{ runner.temp }}/Maccy-baseline-unsigned.zip
           if-no-files-found: error
           retention-days: 7

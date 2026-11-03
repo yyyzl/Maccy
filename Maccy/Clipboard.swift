@@ -10,7 +10,8 @@ class Clipboard {
   private var onNewCopyHooks: [OnNewCopyHook] = []
   var changeCount: Int
 
-  private let pasteboard = NSPasteboard.general
+  private let pasteboard: NSPasteboard
+  private let notifyOnCopy: Bool
 
   private var timer: Timer?
 
@@ -35,7 +36,9 @@ class Clipboard {
 
   private var sourceApp: NSRunningApplication? { NSWorkspace.shared.frontmostApplication }
 
-  init() {
+  init(pasteboard: NSPasteboard = .general, notifyOnCopy: Bool = true) {
+    self.pasteboard = pasteboard
+    self.notifyOnCopy = notifyOnCopy
     changeCount = pasteboard.changeCount
   }
 
@@ -103,7 +106,9 @@ class Clipboard {
     sync()
 
     Task {
-      Notifier.notify(body: item.title, sound: .knock)
+      if notifyOnCopy {
+        Notifier.notify(body: item.title, sound: .knock)
+      }
       checkForChangesInPasteboard()
     }
   }

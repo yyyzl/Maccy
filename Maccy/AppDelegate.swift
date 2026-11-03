@@ -100,6 +100,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     ) {
       ContentView()
     }
+
+    #if DEBUG
+    IsolatedMemorySmoke.runIfRequested()
+    #endif
   }
 
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
