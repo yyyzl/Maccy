@@ -54,19 +54,21 @@ jobs:
               --entitlements "$destination/entitlements.plist" "$destination/Maccy.app"
             codesign --verify --deep --strict "$destination/Maccy.app"
           done
-      - name: Verify duplicate metadata and original-format contracts
+      - name: Verify twelve UI cycles and original-format contracts
         run: |
           set -euo pipefail
           for variant in bulk candidate; do
+            for scenario in contracts interaction; do
             set +e
-            bash tests-cli/lifecycle/run.sh "$RUNNER_TEMP/$variant/Maccy.app" "$variant" contracts | tee "$RUNNER_TEMP/memory-results/contracts-$variant-console.log"
+            bash tests-cli/lifecycle/run.sh "$RUNNER_TEMP/$variant/Maccy.app" "$variant" "$scenario" | tee "$RUNNER_TEMP/memory-results/$scenario-$variant-console.log"
             set -e
-            directory=$(sed -n 's/^Results: //p' "$RUNNER_TEMP/memory-results/contracts-$variant-console.log" | head -1)
+            directory=$(sed -n 's/^Results: //p' "$RUNNER_TEMP/memory-results/$scenario-$variant-console.log" | head -1)
             [[ "$directory" =~ ^/tmp/maccy-lifecycle-results\.[A-Za-z0-9]+$ ]]
-            test -f "$directory/contracts.log"
-            grep -E 'CONTRACTS_OK' "$directory/contracts.log"
-            grep -E 'READY scenario=contracts' "$directory/contracts.log"
-            grep -E '\[MaccyLifecycle\]' "$directory/contracts.log" > "$RUNNER_TEMP/memory-results/contracts-$variant.log"
+            test -f "$directory/$scenario.log"
+            grep -E '(CONTRACTS_OK|INTERACTION_OK cycles=12)' "$directory/$scenario.log"
+            grep -E "READY scenario=$scenario" "$directory/$scenario.log"
+            grep -E '\[MaccyLifecycle\]' "$directory/$scenario.log" > "$RUNNER_TEMP/memory-results/$scenario-$variant.log"
+            done
           done
       - name: Measure the bulk-context version
         continue-on-error: true

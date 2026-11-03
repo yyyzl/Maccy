@@ -168,7 +168,7 @@ enum IsolatedMemoryLifecycle {
         String($0.dropFirst("--cycles=".count))
       } ?? "60"), [60, 240].contains(cycleCount),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "copy", "long"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "visibility", "contracts", "interaction", "copy", "long"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -337,14 +337,15 @@ enum IsolatedMemoryLifecycle {
               }
             }
           }
-        case "long":
+        case "long", "interaction":
           guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
           var imageIDs = Set(History.shared.all.filter({ $0.title.contains("image") }).map { $0.item.persistentModelID })
           var newImageIDs = Set<PersistentIdentifier>()
           var previewedNewImages = Set<PersistentIdentifier>()
-          for cycle in 1...cycleCount {
+          let operationCount = scenario == "long" ? cycleCount : 12
+          for cycle in 1...operationCount {
             var captureMilliseconds = 0.0
             autoreleasepool {
               Clipboard.shared.changeCount += 1
@@ -367,21 +368,36 @@ enum IsolatedMemoryLifecycle {
                 imageIDs.insert(added.item.persistentModelID)
               }
             }
-            let images = History.shared.all.filter({ imageIDs.contains($0.item.persistentModelID) })
+            let displayedIDs = Set(History.shared.items.map(\.id))
+            let images = History.shared.all.filter {
+              displayedIDs.contains($0.id) && imageIDs.contains($0.item.persistentModelID)
+            }
             guard !images.isEmpty else {
               NSLog("[MaccyLifecycle] STAGE_FAIL no_images cycle=%d", cycle)
               throw LifecycleError.invalidFixture
             }
             let item = images[(cycle - 1) % min(6, images.count)]
+            let initialSelection = History.shared.unpinnedItems.first?.id ?? History.shared.pinnedItems.first?.id
             NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
             panel.contentView?.layoutSubtreeIfNeeded()
-            try await Task.sleep(nanoseconds: 100_000_000)
+            // 等待列表的激活回调完成，避免它随后覆盖本次明确选择。
+            for _ in 0..<200 where History.shared.selectedItem?.id != initialSelection {
+              try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            guard initialSelection != nil, History.shared.selectedItem?.id == initialSelection else {
+              NSLog("[MaccyLifecycle] STAGE_FAIL activation_selection cycle=%d", cycle)
+              throw LifecycleError.invalidFixture
+            }
             guard !panel.isVisible, !panel.isKeyWindow else {
               NSLog("[MaccyLifecycle] STAGE_FAIL window_state cycle=%d visible=%d key=%d", cycle,
                     panel.isVisible ? 1 : 0, panel.isKeyWindow ? 1 : 0)
               throw LifecycleError.invalidFixture
             }
             AppState.shared.selection = item.id
+            guard item.isSelected else {
+              NSLog("[MaccyLifecycle] STAGE_FAIL target_selection cycle=%d", cycle)
+              throw LifecycleError.invalidFixture
+            }
             _ = item.application
             _ = item.text
             item.ensureThumbnailImage()
@@ -440,13 +456,16 @@ enum IsolatedMemoryLifecycle {
             NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d text_capture_ms=%.1f", cycle,
                   History.shared.all.filter({ $0.previewImage != nil }).count,
                   History.shared.all.filter({ $0.thumbnailImage != nil }).count, captureMilliseconds)
-            try await Task.sleep(nanoseconds: 15_000_000_000)
+            try await Task.sleep(nanoseconds: scenario == "long" ? 15_000_000_000 : 500_000_000)
           }
-          guard previewedNewImages.count >= 10 else {
+          guard previewedNewImages.count >= (scenario == "long" ? 10 : 2) else {
             NSLog("[MaccyLifecycle] STAGE_FAIL new_image_coverage count=%d", previewedNewImages.count)
             throw LifecycleError.invalidFixture
           }
           NSLog("[MaccyLifecycle] NEW_IMAGES_PREVIEWED count=%d", previewedNewImages.count)
+          if scenario == "interaction" {
+            NSLog("[MaccyLifecycle] INTERACTION_OK cycles=%d selected=YES formats=YES", operationCount)
+          }
         default: break
         }
         try Storage.shared.context.save()
