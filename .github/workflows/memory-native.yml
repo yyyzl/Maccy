@@ -14,16 +14,26 @@ concurrency:
 
 jobs:
   probe:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-26-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Compile the standalone inverse-relationship probe
         run: |
           set -euo pipefail
-          test "$(uname -m)" = arm64
+          test "$(uname -m)" = '${{ matrix.arch }}'
           mkdir -p "$RUNNER_TEMP/capture-probe"
           sw_vers > "$RUNNER_TEMP/capture-probe/host.txt"
+          uname -m >> "$RUNNER_TEMP/capture-probe/host.txt"
+          git rev-parse HEAD >> "$RUNNER_TEMP/capture-probe/host.txt"
           xcrun swiftc -O tests-cli/swiftdata-capture/main.swift -o "$RUNNER_TEMP/probe"
           echo '<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>' > "$RUNNER_TEMP/probe-entitlements.plist"
           codesign --force --sign - --entitlements "$RUNNER_TEMP/probe-entitlements.plist" "$RUNNER_TEMP/probe"
@@ -50,6 +60,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: swiftdata-capture-probe-arm64
+          name: swiftdata-capture-probe-${{ matrix.arch }}
           path: ${{ runner.temp }}/capture-probe/
           retention-days: 7
