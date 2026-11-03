@@ -165,7 +165,7 @@ enum IsolatedMemoryLifecycle {
       UserDefaults.standard.bool(forKey: "ignoreEvents"),
       !UserDefaults.standard.bool(forKey: "clearOnQuit"),
       let scenario = args.first(where: { $0.hasPrefix("--scenario=") })?.split(separator: "=").last.map(String.init),
-      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "copy"].contains(scenario),
+      ["seed", "idle", "text", "duplicate", "image", "preview", "browse", "copy", "long"].contains(scenario),
       let store = args.first(where: { $0.hasPrefix("--store=") })?.split(separator: "=").last.map(String.init),
       !store.isEmpty, store.count < 80,
       store.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
@@ -257,6 +257,56 @@ enum IsolatedMemoryLifecycle {
               }
             }
           }
+        case "long":
+          NSLog("[MaccyLifecycle] BEGIN long");
+          try await Task.sleep(nanoseconds: 20_000_000_000)
+          for cycle in 1...60 {
+            autoreleasepool {
+              Clipboard.shared.changeCount += 1
+              History.shared.add(text(1_000 + cycle))
+              if cycle % 3 == 0 {
+                Clipboard.shared.changeCount += 1
+                History.shared.add(image(1_000 + cycle))
+              }
+              if cycle % 5 == 0 {
+                Clipboard.shared.changeCount += 1
+                History.shared.add(image(0))
+              }
+            }
+            let images = History.shared.all.filter({ $0.title.contains("image") })
+            guard !images.isEmpty else { throw LifecycleError.invalidFixture }
+            let item = images[(cycle - 1) % min(6, images.count)]
+            History.shared.selectedItem = item
+            _ = item.application
+            _ = item.text
+            item.ensureThumbnailImage()
+            item.ensurePreviewImage()
+            try await Task.sleep(nanoseconds: 300_000_000)
+            try autoreleasepool {
+              let board = NSPasteboard(name: .init("org.yyyzl.MaccyMemoryLifecycle.\(UUID().uuidString)"))
+              defer { board.releaseGlobally() }
+              Clipboard(pasteboard: board, notifyOnCopy: false).copy(item.item)
+              let context = ModelContext(Storage.shared.container)
+              guard let stored = context.model(for: item.item.persistentModelID) as? HistoryItem else {
+                throw LifecycleError.originalMismatch
+              }
+              for content in stored.contents {
+                guard board.data(forType: .init(content.type)) == content.value else {
+                  throw LifecycleError.originalMismatch
+                }
+              }
+            }
+            AppState.shared.popup.close()
+            try Storage.shared.context.save()
+            guard History.shared.all.count == 201,
+              History.shared.pinnedItems.count == 1,
+              History.shared.pinnedItems.first?.item.pin == "p"
+            else { throw LifecycleError.invalidFixture }
+            NSLog("[MaccyLifecycle] CYCLE_READY cycle=%d previews=%d thumbnails=%d", cycle,
+                  History.shared.all.filter({ $0.previewImage != nil }).count,
+                  History.shared.all.filter({ $0.thumbnailImage != nil }).count)
+            try await Task.sleep(nanoseconds: 15_000_000_000)
+          }
         default: break
         }
         try Storage.shared.context.save()
@@ -292,6 +342,7 @@ enum IsolatedMemoryLifecycle {
     if index == 0 { contents.append(HistoryItemContent(type: "public.png", value: bitmap.representation(using: .png, properties: [:])!)) }
     let item = HistoryItem(contents: contents)
     item.title = "Lifecycle synthetic image \(index)"
+    if index == 0 { item.pin = "p" }
     return item
   }
 
