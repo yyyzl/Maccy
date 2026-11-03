@@ -287,6 +287,7 @@ enum IsolatedMemoryLifecycle {
             }
           }
         case "long":
+          guard let panel = AppState.shared.appDelegate?.panel else { throw LifecycleError.invalidFixture }
           NSLog("[MaccyLifecycle] BEGIN long");
           try await Task.sleep(nanoseconds: 20_000_000_000)
           var imageIDs = Set(History.shared.all.filter({ $0.title.contains("image") }).map { $0.item.persistentModelID })
@@ -315,7 +316,11 @@ enum IsolatedMemoryLifecycle {
             let images = History.shared.all.filter({ imageIDs.contains($0.item.persistentModelID) })
             guard !images.isEmpty else { throw LifecycleError.invalidFixture }
             let item = images[(cycle - 1) % min(6, images.count)]
-            History.shared.selectedItem = item
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 100_000_000)
+            guard !panel.isVisible, !panel.isKeyWindow else { throw LifecycleError.invalidFixture }
+            AppState.shared.selection = item.id
             _ = item.application
             _ = item.text
             item.ensureThumbnailImage()
@@ -343,6 +348,8 @@ enum IsolatedMemoryLifecycle {
               }
             }
             AppState.shared.popup.close()
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+            panel.contentView?.layoutSubtreeIfNeeded()
             try Storage.shared.context.save()
             // Existing pinned deduplication can temporarily leave 199 unpinned items.
             guard (200...201).contains(History.shared.all.count),
