@@ -1,4 +1,4 @@
-name: Verify the same reviewed binary on ARM macOS 26
+name: Measure the previous lifecycle source on ARM macOS 26
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        label: [endurance, background]
+        label: [endurance]
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -32,7 +32,7 @@ jobs:
             uname -m
             sysctl -n hw.memsize
             git rev-parse HEAD
-            echo 'Binary source: 6d6270396a37ec14255c0546c758ffc009c9c94d; production 97fa81b; build run 41740845842'
+            echo 'Binary source: f1f9b136af33957ac6c527004616778af80e389e; production 0dddf7f; build run 41724342920'
             echo 'Supplemental macOS 26 evidence; cannot substitute for macOS 15'
             swift -e 'import AppKit; print("Screen:", NSScreen.main?.frame as Any, "scale:", NSScreen.main?.backingScaleFactor as Any)'
           } | tee "$RUNNER_TEMP/memory-results/host.txt"
@@ -43,8 +43,8 @@ jobs:
           set -euo pipefail
           destination="$RUNNER_TEMP/candidate"
           mkdir -p "$destination"
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/13281202123/zip" > "$destination/artifact.zip"
-          echo "a97ea32b35e9284ab2370e0cf2571bc1612c99d747bf1d478cec54be9e80b6b3  $destination/artifact.zip" | shasum -a 256 -c -
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/13274461421/zip" > "$destination/artifact.zip"
+          echo "a5ce1c9e5b61327aa6d44ee3f11b61028d47b6dba65492aac2f3d0ace390f6e7  $destination/artifact.zip" | shasum -a 256 -c -
           ditto -x -k "$destination/artifact.zip" "$destination"
           ditto -x -k "$destination/Maccy-window.zip" "$destination"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$destination/Maccy.app/Contents/Info.plist")" = org.yyyzl.MaccyMemoryLifecycle
@@ -74,6 +74,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native26-resident-${{ matrix.label }}
+          name: native26-control-${{ matrix.label }}
           path: ${{ runner.temp }}/memory-results/
           retention-days: 7
