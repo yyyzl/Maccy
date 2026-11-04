@@ -1,0 +1,102 @@
+name: Compare the same storage probe binary across macOS versions
+
+on:
+  push:
+    branches: ['memory-intel/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-intel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.binary.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile one deployment-compatible probe using the production reader
+        id: binary
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/reader.swift" <<'PY'
+          from pathlib import Path
+          import sys
+          source = Path('Maccy/Observables/HistoryImageLoader.swift').read_text()
+          body = 'enum HistoryItemReader {' + source.split('enum HistoryItemReader {',1)[1].split('\nenum HistoryImageLoader',1)[0]
+          Path(sys.argv[1]).write_text('import Foundation\nimport SwiftData\n' + body)
+          PY
+          xcrun swiftc -O -swift-version 5 -target x86_64-apple-macosx14.0 \
+            tests-cli/swiftdata-capture/models.swift "$RUNNER_TEMP/reader.swift" \
+            tests-cli/swiftdata-capture/main.swift -o "$RUNNER_TEMP/probe"
+          echo "sha=$(shasum -a 256 "$RUNNER_TEMP/probe" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: same-storage-probe-x86
+          path: ${{ runner.temp }}/probe
+          retention-days: 7
+  compare:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel, macos-26-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: same-storage-probe-x86
+          path: ${{ runner.temp }}/binary
+      - name: Verify the exact shared binary and record the host
+        env:
+          BINARY_SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/probe-results"
+          {
+            sw_vers
+            uname -m
+            git rev-parse HEAD
+            echo "Binary SHA: $BINARY_SHA"
+            echo 'Mechanism probe only: no application UI, OCR or clipboard'
+          } > "$RUNNER_TEMP/probe-results/host.txt"
+          echo "$BINARY_SHA  $RUNNER_TEMP/binary/probe" | shasum -a 256 -c -
+          chmod +x "$RUNNER_TEMP/binary/probe"
+          echo '<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>' > "$RUNNER_TEMP/probe-entitlements.plist"
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/probe-entitlements.plist" "$RUNNER_TEMP/binary/probe"
+      - name: Measure eight storage access modes and verify bytes again after idle
+        run: |
+          set -euo pipefail
+          for mode in main writer type value reader rollback pending saved; do
+            store_dir=$(mktemp -d "$RUNNER_TEMP/probe-store-$mode.XXXXXX")
+            log="$RUNNER_TEMP/probe-results/$mode.log"
+            env -u GH_TOKEN -u GITHUB_TOKEN -u ACTIONS_RUNTIME_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+              "$RUNNER_TEMP/binary/probe" "$mode" "$store_dir/store.sqlite" > "$log" 2>&1 &
+            probe_pid=$!
+            for _ in {1..60}; do
+              if grep -q PROBE_READY "$log"; then break; fi
+              kill -0 "$probe_pid"
+              sleep 1
+            done
+            grep -q PROBE_READY "$log"
+            footprint "$probe_pid" > "$RUNNER_TEMP/probe-results/$mode-footprint-0.txt"
+            sleep 15
+            footprint "$probe_pid" > "$RUNNER_TEMP/probe-results/$mode-footprint-15.txt"
+            heap -s --noContent -H "$probe_pid" > "$RUNNER_TEMP/probe-results/$mode-heap.txt" 2>&1
+            vmmap -summary "$probe_pid" > "$RUNNER_TEMP/probe-results/$mode-vmmap.txt" 2>&1
+            wait "$probe_pid"
+            grep -q PROBE_RECHECK_OK "$log"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: same-storage-probe-${{ matrix.os }}
+          path: ${{ runner.temp }}/probe-results/
+          retention-days: 7

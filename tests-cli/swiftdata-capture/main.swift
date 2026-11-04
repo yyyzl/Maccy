@@ -7,7 +7,8 @@ import SwiftData
 @MainActor
 func runProbe() throws {
   let mode = CommandLine.arguments[1]
-  precondition(["main", "writer", "type", "value", "reader", "rollback"].contains(mode))
+  precondition(["main", "writer", "type", "value", "reader", "rollback", "pending", "saved"].contains(mode))
+  let payloadSize = 8_192_722
   let config = ModelConfiguration(url: URL(fileURLWithPath: CommandLine.arguments[2]))
   let container = try ModelContainer(for: HistoryItem.self, configurations: config)
   let metadataContext = container.mainContext
@@ -15,7 +16,7 @@ func runProbe() throws {
   var hashes: [PersistentIdentifier: SHA256.Digest] = [:]
   for index in 0..<20 {
     try autoreleasepool {
-      var bytes = Data(count: 8 * 1024 * 1024)
+      var bytes = Data(count: payloadSize)
       bytes.withUnsafeMutableBytes { arc4random_buf($0.baseAddress!, $0.count) }
       let item = HistoryItem(contents: [HistoryItemContent(type: "public.tiff", value: bytes)])
       item.title = "Synthetic image \(index)"
@@ -35,6 +36,11 @@ func runProbe() throws {
           let stored = readContext.model(for: metadata.persistentModelID) as! HistoryItem
           precondition(SHA256.hash(data: stored.contents[0].value!) == hashes[item.persistentModelID])
         }
+      } else if mode == "pending" || mode == "saved" {
+        metadata.title += " / metadata"
+        if mode == "saved" { try metadataContext.save() }
+        let digest = HistoryItemReader.read(metadata) { SHA256.hash(data: $0.contents[0].value!) }
+        precondition(digest == hashes[item.persistentModelID])
       }
     }
   }
@@ -56,10 +62,20 @@ func runProbe() throws {
       if item === items[0] { precondition(stored.pin == "p" && stored.numberOfCopies == 7) }
     }
   }
-  print("PROBE_READY mode=\(mode) items=\(items.count) bytes=167772160 pid=\(getpid())")
+  print("PROBE_READY mode=\(mode) items=\(items.count) bytes=\(20 * payloadSize) pid=\(getpid())")
   fflush(stdout)
-  RunLoop.current.run(until: Date(timeIntervalSinceNow: 90))
-  precondition(items.count == 20)
+  withExtendedLifetime(items) {
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
+  }
+  for item in items {
+    autoreleasepool {
+      let context = ModelContext(container)
+      let source = ["type", "value", "rollback", "pending"].contains(mode) ? item :
+        context.model(for: item.persistentModelID) as! HistoryItem
+      precondition(SHA256.hash(data: source.contents[0].value!) == hashes[item.persistentModelID])
+    }
+  }
+  print("PROBE_RECHECK_OK mode=\(mode) items=\(items.count)")
 }
 
 try MainActor.assumeIsolated { try runProbe() }
