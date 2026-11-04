@@ -1,4 +1,4 @@
-name: Verify continuous resident capture without opening the popup on ARM
+name: Verify the same reviewed binary on ARM macOS 26
 
 on:
   push:
@@ -14,47 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-arm:
-    runs-on: macos-26-intel
-    timeout-minutes: 30
-    outputs:
-      zip_sha: ${{ steps.package.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check lifecycle helpers before the full app build
-        run: |
-          set -euo pipefail
-          for check in decorator image-loader image-resize clipboard-metadata smoke-compile trial-updater; do
-            bash "tests-cli/$check/run.sh"
-          done
-      - name: Cross-build the isolated ARM64 Release candidate
-        run: |
-          set -euo pipefail
-          xcodebuild -project Maccy.xcodeproj -scheme Maccy -configuration Release \
-            -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/WindowBuild" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
-            PRODUCT_BUNDLE_IDENTIFIER=org.yyyzl.MaccyMemoryLifecycle \
-            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MEMORY_TRIAL MEMORY_LIFECYCLE' \
-            'OTHER_LDFLAGS=$(inherited) -Wl,-dead_strip_dylibs' build
-          app="$RUNNER_TEMP/WindowBuild/Build/Products/Release/Maccy.app"
-          lipo "$app/Contents/MacOS/Maccy" -verify_arch arm64
-          if otool -L "$app/Contents/MacOS/Maccy" | grep -Fq Sparkle.framework; then exit 1; fi
-          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Maccy-window.zip"
-      - name: Record the exact package digest
-        id: package
-        run: echo "sha=$(shasum -a 256 "$RUNNER_TEMP/Maccy-window.zip" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Maccy-window-candidate-arm64
-          path: ${{ runner.temp }}/Maccy-window.zip
-          retention-days: 7
   compare:
-    needs: build-arm
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        label: [endurance, background]
+    runs-on: macos-26
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - name: Verify ARM host and record the synthetic-window source
+      - name: Record the native supplemental host and exact binary source
         run: |
           test "$(uname -m)" = arm64
           mkdir -p "$RUNNER_TEMP/memory-results"
@@ -63,20 +32,20 @@ jobs:
             uname -m
             sysctl -n hw.memsize
             git rev-parse HEAD
+            echo 'Binary source: 6d6270396a37ec14255c0546c758ffc009c9c94d; production 97fa81b; build run 41740845842'
+            echo 'Supplemental macOS 26 evidence; cannot substitute for macOS 15'
             swift -e 'import AppKit; print("Screen:", NSScreen.main?.frame as Any, "scale:", NSScreen.main?.backingScaleFactor as Any)'
           } | tee "$RUNNER_TEMP/memory-results/host.txt"
-      - uses: actions/download-artifact@v4
-        with:
-          name: Maccy-window-candidate-arm64
-          path: ${{ runner.temp }}/candidate
-      - name: Verify and sign this run's ARM64 Release candidate
+      - name: Verify and sign the existing isolated ARM64 binary
         env:
-          PACKAGE_SHA: ${{ needs.build-arm.outputs.zip_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$PACKAGE_SHA" =~ ^[0-9a-f]{64}$ ]]
           destination="$RUNNER_TEMP/candidate"
-          echo "$PACKAGE_SHA  $destination/Maccy-window.zip" | shasum -a 256 -c -
+          mkdir -p "$destination"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/13281202123/zip" > "$destination/artifact.zip"
+          echo "a97ea32b35e9284ab2370e0cf2571bc1612c99d747bf1d478cec54be9e80b6b3  $destination/artifact.zip" | shasum -a 256 -c -
+          ditto -x -k "$destination/artifact.zip" "$destination"
           ditto -x -k "$destination/Maccy-window.zip" "$destination"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$destination/Maccy.app/Contents/Info.plist")" = org.yyyzl.MaccyMemoryLifecycle
           lipo "$destination/Maccy.app/Contents/MacOS/Maccy" -verify_arch arm64
@@ -99,13 +68,12 @@ jobs:
             grep -E '(CONTRACTS_OK|INTERACTION_OK cycles=12)' "$directory/$scenario.log"
             grep -E "READY scenario=$scenario" "$directory/$scenario.log"
           done
-      - name: Measure 240 background capture cycles and five minutes of idle
-        id: candidate
-        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" background 240 "$RUNNER_TEMP/memory-results"
-      - name: Preserve the real-window result including failed checks
+      - name: Measure 240 cycles and five minutes of idle
+        run: bash tests-cli/lifecycle/capture.sh "$RUNNER_TEMP/candidate/Maccy.app" "${{ matrix.label }}" 240 "$RUNNER_TEMP/memory-results"
+      - name: Preserve the supplemental result including failed checks
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: background-resident-endurance-arm64
+          name: native26-resident-${{ matrix.label }}
           path: ${{ runner.temp }}/memory-results/
           retention-days: 7
